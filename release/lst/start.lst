@@ -1,0 +1,698 @@
+ca65 V2.17 - Git 59ab140
+Main file   : ..\src\start.a65
+Current file: ..\src\start.a65
+
+000000r 1               		.include "homebrew.inc"
+000000r 2               ;
+000000r 2               ; PLATFORM = 0 : Homebrew - FPGA
+000000r 2               ; PLATFORM = 1 : Homebrew - Hardware
+000000r 2               ; PLATFORM = 2 : Atari XL/XE
+000000r 2               ;
+000000r 2               IO		= $FFFF00
+000000r 2               ROMSTART	= $E000		;$8000 = Test, $E000 = Prod
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Kernel jumptable
+000000r 2               ;--------------------------------------------------------------
+000000r 2               jkernel		= ROMSTART
+000000r 2               jchrin		= ROMSTART + $3
+000000r 2               jchrout		= ROMSTART + $6
+000000r 2               jprint		= ROMSTART + $9
+000000r 2               jprinthex	= ROMSTART + $C
+000000r 2               jgetupper	= ROMSTART + $F
+000000r 2               jgethex		= ROMSTART + $12
+000000r 2               jgetadr		= ROMSTART + $15
+000000r 2               jnewline	= ROMSTART + $18
+000000r 2               jspace		= ROMSTART + $1B
+000000r 2               jhexdownload	= ROMSTART + $1E
+000000r 2               jmemdump	= ROMSTART + $21
+000000r 2               jinputhex	= ROMSTART + $24
+000000r 2               jchangemem	= ROMSTART + $27
+000000r 2               jfillmem	= ROMSTART + $2A
+000000r 2               jfill		= ROMSTART + $2D
+000000r 2               jnmin		= ROMSTART + $30
+000000r 2               jirqn		= ROMSTART + $33
+000000r 2               jbrk		= ROMSTART + $36
+000000r 2               jtime		= ROMSTART + $39
+000000r 2               jmenu		= ROMSTART + $3C
+000000r 2               jdisass		= ROMSTART + $3F
+000000r 2               jdisone		= ROMSTART + $42
+000000r 2               jrs232v		= ROMSTART + $45
+000000r 2               jsetaddress	= ROMSTART + $48
+000000r 2               jmemdump16	= ROMSTART + $4B
+000000r 2               jkgbirq		= ROMSTART + $4E	;(4-bytes !!)
+000000r 2               jdisass24	= ROMSTART + $52
+000000r 2               jcopn		= ROMSTART + $55
+000000r 2               
+000000r 2               ;
+000000r 2               ; Dummy vectors
+000000r 2               ;
+000000r 2               jcope		= ROMSTART + $30
+000000r 2               jaborte		= ROMSTART + $30
+000000r 2               jabortn		= ROMSTART + $30
+000000r 2               jirqe		= ROMSTART + $30
+000000r 2               jnmie		= ROMSTART + $30
+000000r 2               
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; SD CARD constants
+000000r 2               ;--------------------------------------------------------------
+000000r 2               CMD0		= $40 +  0	;GO_IDLE_STATE	0x40, 64
+000000r 2               CMD1		= $40 +  1	;reset
+000000r 2               CMD8		= $40 +  8	;SEND_IF_COND	0x48, 72
+000000r 2               CMD9		= $40 +  9	;SEND_CSD	0x49, 73
+000000r 2               CMD13		= $40 + 13	;get_status	0x4D, 77
+000000r 2               CMD17		= $40 + 17	;read  sector 	0x51, 81
+000000r 2               CMD24		= $40 + 24	;write sector 	0x58, 88
+000000r 2               CMD41		= $40 + 41	;SEND_OP_COND	0x69, 105 (leave idle state)
+000000r 2               CMD55		= $40 + 55	;ACMD 		0x77, 119
+000000r 2               CMD58		= $40 + 58	;READ_OCR	0x7A, 122
+000000r 2               
+000000r 2               DATA_START_BLOCK	= $FE
+000000r 2               DATA_RES_MASK		= $1F
+000000r 2               DATA_RES_ACCEPTED	= $05
+000000r 2               
+000000r 2               CMD0CHK		= $95
+000000r 2               CMD1CHK		= $F9
+000000r 2               CMD8CHK		= $87
+000000r 2               
+000000r 2               R1_IDLE_STATE	= 1
+000000r 2               R1_ILLEGAL_COMMAND = 4
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; MISC constants
+000000r 2               ;--------------------------------------------------------------
+000000r 2               
+000000r 2               NEGATIVE	= $80
+000000r 2               OVERFLOW	= $40		;
+000000r 2               M		= $20		; Accu 8/16-bit
+000000r 2               IX		= $10		; Index 8/16-bit
+000000r 2               DECIMAL_FLAG	= $08		; Decimal Flag
+000000r 2               ID		= $04		; IRQ disable
+000000r 2               ZERO		= $02		; zero flag
+000000r 2               CARRY		= $01		; Carry
+000000r 2               
+000000r 2               CHARS40		= 40
+000000r 2               CHARS80		= 80
+000000r 2               NUMROWS		= 25
+000000r 2               
+000000r 2               ;	special key scan-codes
+000000r 2               ALTGR		= $11	;extended!
+000000r 2               ALR		= $11
+000000r 2               CLSHIFT		= $12
+000000r 2               CLSTRG		= $14
+000000r 2               CRSHIFT		= $59
+000000r 2               CCAPS		= $58
+000000r 2               
+000000r 2               CCHARLINE	= 80	;80 chars per line
+000000r 2               
+000000r 2               	.if PLATFORM = 0
+000000r 2               SCRSTRT		= $F000
+000000r 2               SCRBANK		= $7F
+000000r 2               	.else
+000000r 2               SCRSTRT		= $C000
+000000r 2               	.endif
+000000r 2               charset		= $F800
+000000r 2               
+000000r 2               jusermenu	= $0400
+000000r 2               juserkeys	= $0403
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; ATARI constants
+000000r 2               ;--------------------------------------------------------------
+000000r 2               LEDGE	= 	0	;left edge
+000000r 2               
+000000r 2               MAXDEV	=	33	;offset to last possible entry of HATABS
+000000r 2               
+000000r 2               IOCBSZ	=	16	;length of IOCB
+000000r 2               IOCFRE	=	$FF	;IOCB free indicator
+000000r 2               
+000000r 2               SEIOCB	=	0*IOCBSZ	;screen editor IOCB index
+000000r 2               MAXIOC	=	8*IOCBSZ	;first invalid IOCB index
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ;	Device Code equates
+000000r 2               ;--------------------------------------------------------------
+000000r 2               CASSET	=	'C'	;cassette
+000000r 2               DISK	=	'D'	;disk
+000000r 2               SCREDT	=	'E'	;screen editor
+000000r 2               KBD	=	'K'	;keyboard
+000000r 2               PRINTR	=	'P'	;printer
+000000r 2               DISPLY	=	'S'	;screen display
+000000r 2               RS232D	=	'R'	;RS232 serial interface
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ;	IOCB Command Code equates
+000000r 2               ;--------------------------------------------------------------
+000000r 2               OPEN	=	$03	;open
+000000r 2               GETREC	=	$05	;get record
+000000r 2               GETCHR	=	$07	;get character(s) (binary)
+000000r 2               PUTREC	=	$09	;put record
+000000r 2               PUTCHR	=	$0B	;put character(s)
+000000r 2               CLOSE	=	$0C	;close
+000000r 2               STATUS	=	$0D	;status
+000000r 2               SPECIL	=	$0E	;special
+000000r 2               
+000000r 2               CXIO36	= 	36
+000000r 2               CXIO38	=	38
+000000r 2               CXIO40	=	40
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ;	Character and Key Code equates
+000000r 2               ;--------------------------------------------------------------
+000000r 2               			;SUPERF <>  0
+000000r 2               
+000000r 2               CCHM	=	$1C	;move cursor home
+000000r 2               CCBT	=	$1D	;move cursor to bottom
+000000r 2               CCLM	=	$1E	;move cursor to left margin
+000000r 2               CCRM	=	$1F	;move cursor to right margin
+000000r 2               
+000000r 2               			;SUPERF = 0
+000000r 2               
+000000r 2               CLS	=	$01	;clear screen
+000000r 2               BACK	=	$08	;backspace
+000000r 2               EOL	=	$0A	;$9B	;end of line (RETURN)
+000000r 2               ESC	=	$1B	;escape key
+000000r 2               CCUP	=	$1C	;cursor up
+000000r 2               CCDN	=	$1D	;cursor down
+000000r 2               CCLF	=	$1E	;cursor left
+000000r 2               CCRT	=	$1F	;cursor right
+000000r 2               CSPACE	=	$20	;space
+000000r 2               TABU	=	$7F	;tabulator
+000000r 2               CILN	=	$9D	;insert line
+000000r 2               CDCH	=	$FE	;delete character
+000000r 2               CICH	=	$FF	;insert character
+000000r 2               
+000000r 2               HELP	=	$11	;key code for HELP
+000000r 2               CNTLF1	=	$83	;key code for CTRL-F1
+000000r 2               CNTLF2	=	$84	;key code for CTRL-F2
+000000r 2               CNTLF3	=	$93	;key code for CTRL-F3
+000000r 2               CNTLF4	=	$94	;key code for CTRL-F4
+000000r 2               CNTL1	=	$9F	;key code for CTRL-1
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ;	Status Code equates
+000000r 2               ;--------------------------------------------------------------
+000000r 2               SUCCES	=	1	;successful operation
+000000r 2               
+000000r 2               BRKABT	=	128	;BREAK key abort
+000000r 2               PRVOPN	=	129	;IOCB already open error
+000000r 2               NONDEV	=	130	;nonexistent device error
+000000r 2               WRONLY	=	131	;IOCB opened for write only error
+000000r 2               NVALID	=	132	;invalid command error
+000000r 2               NOTOPN	=	133	;device/file not open error
+000000r 2               BADIOC	=	134	;invalid IOCB index error
+000000r 2               RDONLY	=	135	;IOCB opened for read only error
+000000r 2               EOFERR	=	136	;end of file error
+000000r 2               TRNRCD	=	137	;truncated record error
+000000r 2               TIMOUT	=	138	;peripheral device timeout error
+000000r 2               DNACK	=	139	;device does not acknowledge command error
+000000r 2               FRMERR	=	140	;serial bus framing error
+000000r 2               CRSROR	=	141	;cursor overrange error
+000000r 2               OVRRUN	=	142	;serial bus data overrun error
+000000r 2               CHKERR	=	143	;serial bus checksum error
+000000r 2               DERROR	=	144	;device done (operation incomplete) error
+000000r 2               BADMOD	=	145	;bad screen mode number error
+000000r 2               FNCNOT	=	146	;function not implemented in handler error
+000000r 2               SCRMEM	=	147	;insufficient memory for screen mode error
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew variables Zero page
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ptr		= $00	;2-byte misc. pointer
+000000r 2               memptr		= $02	;3-byte pointer
+000000r 2               
+000000r 2               PCREG		= $02   ;3-byte redefine for disassembler
+000000r 2               PCREGH		= PCREG+1
+000000r 2               PCREGB		= PCREGH+1
+000000r 2               
+000000r 2               chksum		= $05	;1-byte checksum
+000000r 2               
+000000r 2               FATPTRS_	= $06	;2-byte FAT source pointer
+000000r 2               FATPTRD_	= $08	;2-byte FAT destination pointer
+000000r 2               PTRDUP		= $0A	;2-byte misc. pointer DUP
+000000r 2               SECPTR		= $0C	;2-byte sector pointer
+000000r 2               CHRPTR		= $0E	;2-byte sector pointer hi-res char handling
+000000r 2               DEVICNO		= $10	;1-byte stdout device (0=RS232, 1=CRT)
+000000r 2               TEMP		= $11	;3-byte pointer for debug16
+000000r 2               TEMPH		= $12
+000000r 2               TEMPB		= $13
+000000r 2               PREG		= $14	;1-byte P STATUS REGISTER
+000000r 2               gethex_A	= $15	;1-byte save accu
+000000r 2               
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; ATARI zeropage
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ZIOCB	=	$0020	;address of page zero IOCB
+000000r 2               IOCBAS	=	$0020	;16-byte page zero IOCB
+000000r 2               ICHIDZ	=	$0020	;1-byte handler ID ($FF = IOCB free)
+000000r 2               ICDNOZ	=	$0021	;1-byte device number
+000000r 2               ICCOMZ	=	$0022	;1-byte command code
+000000r 2               ICSTAZ	=	$0023	;1-byte status of last action
+000000r 2               ICBALZ	=	$0024	;1-byte buffer address low
+000000r 2               ICBAHZ	=	$0025	;1-byte buffer address high
+000000r 2               ICBABZ	=	$0026	;1-byte buffer address bank
+000000r 2               ICBLLZ	=	$0027	;1-byte buffer length low
+000000r 2               ICBLHZ	=	$0028	;1-byte buffer length high
+000000r 2               ICBLBZ	=	$0029	;1-byte buffer length bank
+000000r 2               ICAX1Z	=	$002A	;1-byte first auxiliary information
+000000r 2               ICAX2Z	=	$002B	;1-byte second auxiliary information
+000000r 2               ICSPRZ	=	$002C	;4-byte spares
+000000r 2               ;ENTVEC	=	$002C	;2-byte (not used)
+000000r 2               ICIDNO	=	$002E	;1-byte IOCB index (IOCB number times IOCBSZ)
+000000r 2               CIOCHR	=	$002F	;1-byte character for current CIO operation
+000000r 2               ;ICPTLZ	=	$0026	;1-byte low PUT-BYTE routine address-1
+000000r 2               ;ICPTHZ	=	$0027	;1-byte high PUT-BYTE routine address-1
+000000r 2               
+000000r 2               BRKKEY	=	$0030	;1-byte BREAK key flag (0 = no BREAK)
+000000r 2               ICCOMT	=	$0031	;1-byte CIO command table index
+000000r 2               DSTAT	=	$0032	;1-byte display status
+000000r 2               TMPCHR	=	$0033	;1-byte	temporary character
+000000r 2               HOLD1	=	$0034	;1-byte	temporary
+000000r 2               LMARGN	=	$0035	;1-byte text column left margin
+000000r 2               RMARGN	=	$0036	;1-byte text column right margin
+000000r 2               ROWCRS	=	$0037	;1-byte cursor row
+000000r 2               COLCRS	=	$0038	;2-byte cursor column
+000000r 2               ALTACT	=	$003A	;1-byte ALRGR active --display mode
+000000r 2               SAVMSC	=	$003B	;2-byte saved memory scan counter
+000000r 2               OLDROW	=	$003D	;1-byte prior row
+000000r 2               OLDCOL	=	$003E	;2-byte prior column
+000000r 2               OLDCHR	=	$0040	;1-byte saved character under cursor
+000000r 2               OLDADR	=	$0041	;3-byte saved cursor memory address
+000000r 2               
+000000r 2               LOGCOL	=	$0044	;1-byte logical line cursor column
+000000r 2               
+000000r 2               ;DUMMY	=	$0044	;2-byte temporary address
+000000r 2               
+000000r 2               ;MLTTMP	=	$0046	;1-byte temporary
+000000r 2               ;OPNTMP	=	$0046	;1-byte open temporary
+000000r 2               TOADR	=	$0045	;3-byte destination address
+000000r 2               
+000000r 2               SAVADR	=	$0048	;3-byte saved address
+000000r 2               FRMADR	=	$0048	;3-byte source address
+000000r 2               
+000000r 2               RAMTOP	=	$004B	;1-byte RAM size
+000000r 2               BUFCNT	=	$004C	;1-byte buffer count (logical line size)
+000000r 2               BUFSTR	=	$004D	;2-byte buffer start pointer
+000000r 2               BITMSK	=	$004F	;1-byte bit mask for bit map operation
+000000r 2               ;SHFAMT	=	$004F	;1-byte shift amount for pixel justification
+000000r 2               ROWAC	=	$0050	;2-byte draw working row
+000000r 2               COLAC	=	$0052	;2-byte draw working column
+000000r 2               ENDPT	=	$0054	;2-byte end point
+000000r 2               DELTAR	=	$0056	;1-byte row difference
+000000r 2               DELTAC	=	$0057	;2-byte column difference
+000000r 2               SWPFLG	=	$0059	;1-byte split screen swap flag (0 = not swapped)
+000000r 2               INSDAT	=	$005A	;1-byte temporary
+000000r 2               COUNTR	=	$005B	;2-byte draw iteration count
+000000r 2               ADRESS	=	$005D	;3-byte temporary address
+000000r 2               
+000000r 2               
+000000r 2               
+000000r 2               XREG	= ADRESS+3       ; X REGISTER
+000000r 2               XREGH 	= XREG+1
+000000r 2               
+000000r 2               YREG	= XREGH+1        ; Y REGISTER
+000000r 2               YREGH	= YREG+1
+000000r 2               
+000000r 2               AREG	= YREGH+1        ; ACCUMULATOR
+000000r 2               AREGH	= AREG+1
+000000r 2               
+000000r 2               STACK	= AREGH+1        ; STACK POINTER
+000000r 2               STACKH	= STACK+1
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; page 2
+000000r 2               ;--------------------------------------------------------------
+000000r 2               TXTROW	=	$0200	;1-byte split screen text cursor row
+000000r 2               TXTCOL	=	$0201	;2-byte split screen text cursor column
+000000r 2               TINDEX	=	$0203	;1-byte split scree text mode
+000000r 2               TXTMSC	=	$0204	;2-byte split screen memory scan counter
+000000r 2               TXTOLD	=	$0206	;6-byte OLDROW, OLDCOL, OLDCHR, OLDADR for text
+000000r 2               HOLD3	=	$020C	;1-byte temporary
+000000r 2               SUBTMP	=	$020D	;1-byte temporary
+000000r 2               HOLD2	=	$020E	;1-byte (not used)
+000000r 2               ;DMASK	=	$020F	;1-byte display (pixel location) mask
+000000r 2               ;TMPLBT	=	$0210	;1-byte (not used)
+000000r 2               RASVEC	=	$020F	;raster interrupt vector
+000000r 2               ESCFLG	=	$0211	;1-byte escape flag ($80 = ESC detected)
+000000r 2               TABMAP	=	$0212	;15-byte (120-bit) tab stop bit map
+000000r 2               LOGMAP	=	$0221	;8-byte (32-bit) logical line bit map
+000000r 2               CLSFLG	=	$0229	;1-byte clear screen flag
+000000r 2               FILFLG	=	$022A	;1-byte right fill flag (0 = no fill)
+000000r 2               TMPROW	=	$022B	;1-byte temporary row
+000000r 2               TMPCOL	=	$022C	;2-byte temporary column
+000000r 2               SCRFLG	=	$022E	;1-byte scroll occurence flag (0 = not occurred)
+000000r 2               HOLD4	=	$022F	;1-byte temporary
+000000r 2               DRETRY	=	$0230	;1-byte number of device retries
+000000r 2               SHFLOK	=	$0231	;1-byte shift/control lock flags
+000000r 2               BOTSCR	=	$0232	;1-byte screen bottom (24 = normal, 4 = split)
+000000r 2               
+000000r 2               DVSTAT	=	$0233	;4-byte device status buffer
+000000r 2               CRSINH	=	$0237	;1-byte cursor inhibit (0 = cursor on)
+000000r 2               DUMMY00	=	$0238	;1-byte key debounce delay timer
+000000r 2               CH1	=	$0239	;1-byte prior keyboard character
+000000r 2               
+000000r 2               NEWROW	=	$023A	;1-byte draw destination row
+000000r 2               NEWCOL	=	$023B	;2-byte draw destination column
+000000r 2               ROWINC	=	$023D	;1-byte draw row increment
+000000r 2               COLINC	=	$023E	;1-byte	draw column increment
+000000r 2               
+000000r 2               CHAR	=	$023F	;1-byte internal character
+000000r 2               ATACHR	=	$0240	;1-byte ATASCII character or plot point
+000000r 2               FILDAT	=	$0241	;1-byte right fill data
+000000r 2               DSPFLG	=	$0242	;1-byte control character display flag (0 = no)
+000000r 2               SSFLAG	=	$0243	;1-byte start/stop flag (0 = not stopped)
+000000r 2               
+000000r 2               SUPERF	=	$0244	;1-byte editor super function flag :
+000000r 2               ;DERRF	=	$0245	;1-byte screen OPEN error flag (0 = not)
+000000r 2               
+000000r 2               skipone	=	$0246	;1-byte
+000000r 2               extended=	$0247	;1-byte
+000000r 2               ADRCNT	=	$0248	;1-byte counter for setaddress
+000000r 2               
+000000r 2               IRQVEC	=	$0249	;2-byte
+000000r 2               NMIVEC	=	$024B	;2-byte
+000000r 2               jmpind	=	$024D	;1-byte $4C = JMP
+000000r 2               jmpptr	=	$024E	;2-byte
+000000r 2               DBUFLO	=	$0250	;2-byte ;2-byte adr of 512-byte buffer for SD CARD read/Write
+000000r 2               sdcmd	=	$0252	;1-byte SD card command
+000000r 2               sdadr	=	$0253	;4-byte SD card address
+000000r 2               sdchk	=	$0257	;1-byte SD card checksum
+000000r 2               sdres	=	$0258	;1-byte SD card R1 result
+000000r 2               sddebug =	$0259	;1-byte SD card debug flag
+000000r 2               FVEC	=	$025A	;2-byte executable file start vector
+000000r 2               FINIT	=	$025C	;2-byte executable file init vector
+000000r 2               JSLOP	=	$025E	;1-byte JSL-opcode
+000000r 2               JSLADR	=	$025F	;3-byte JSL address
+000000r 2               JSLRTS	=	$0262	;1-byte RTS-opcode
+000000r 2               JMLOP	=	$0263	;1-byte JML-opcode
+000000r 2               JMLADR	=	$0264	;3-byte JML address
+000000r 2               DEVSTAT	=	$0269	;4-byte device status
+000000r 2               SERCNT0	= 	$026D	;1-byte RS232 0 control bits
+000000r 2               SERCNT1	= 	$026E	;1-byte RS232 1 control bits
+000000r 2               CONST5MS=	$026F	;2-byte timer const
+000000r 2               MSTATE	=	$0270	;1-byte state of mouse protocol (0,1,2)
+000000r 2               MPOSX	=	$0271	;2-byte mouse x-pos
+000000r 2               MPOSY	=	$0273	;2-byte mouse y-pos
+000000r 2               MDXDY	=	$0275	;1-byte mouse 1st byte of protocol
+000000r 2               MONACT	=	$027B	;4-byte break-monitor active flags
+000000r 2               
+000000r 2               IOCBSTRT=	$0280		;start of IOCB
+000000r 2               IOCB	=	IOCBSTRT + $0	;128-byte I/O control blocks area
+000000r 2               ICHID	=	IOCBSTRT + $0	;1-byte handler ID ($FF = free)
+000000r 2               ICDNO	=	IOCBSTRT + $1	;1-byte device number
+000000r 2               ICCOM	=	IOCBSTRT + $2	;1-byte command code
+000000r 2               ICSTA	=	IOCBSTRT + $3	;1-byte status of last action
+000000r 2               ICBAL	=	IOCBSTRT + $4	;1-byte low buffer address
+000000r 2               ICBAH	=	IOCBSTRT + $5	;1-byte high buffer address
+000000r 2               ICBAB	=	IOCBSTRT + $6	;1-byte bank buffer address
+000000r 2               ICBLL	=	IOCBSTRT + $7	;1-byte low buffer length
+000000r 2               ICBLH	=	IOCBSTRT + $8	;1-byte high buffer length
+000000r 2               ICBLB	=	IOCBSTRT + $9	;1-byte bank buffer length
+000000r 2               ICAX1	=	IOCBSTRT + $A	;1-byte first auxiliary information
+000000r 2               ICAX2	=	IOCBSTRT + $B	;1-byte second auxiliary information
+000000r 2               ICSPR	=	IOCBSTRT + $C	;4-byte work area
+000000r 2               ;ICPTL	=	IOCBSTRT + $6	;1-byte low PUT-BYTE routine address-1
+000000r 2               ;ICPTH	=	IOCBSTRT + $7	;1-byte high PUT-BYTE routine address-1
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; page 3
+000000r 2               ;--------------------------------------------------------------
+000000r 2               HATABS	=	$0300	;12 * 3-byte entries for HATABS
+000000r 2               ;MONTAB	=	$0324	;8-byte break-monitor pointer
+000000r 2               flags	=	$032C	;1-byte processor flags during IRQ
+000000r 2               IRQPS2S	=	$032D	;1-byte PS2-status from IRQ
+000000r 2               IRQPS2D =	$032E	;1-byte PS2-data from IRQ
+000000r 2               DEVICS	=	$032F	;1-byte DEVICENO SAVE
+000000r 2               BRKBRA	=	$0330	;1-byte branch opcode
+000000r 2               BRKOFF	=	$0331	;1-byte branch offset (always 3)
+000000r 2               BRKNOT	=	$0332	;1-byte jmp branch not taken (always $4c)
+000000r 2               BRKJMP0	=	$0333	;2-byte jmp address branch not taken
+000000r 2               BRKTAK	=	$0335	;1-byte jmp branch taken (always $4c)
+000000r 2               BRKJMP1	=	$0336	;2-byte jmp address branch taken
+000000r 2               BRKVEC	=	$0338	;2-byte BRK vector (65816)
+000000r 2               WARMFLAG=	$033A	;1-byte Warmstart = $CA
+000000r 2               ARGC	=	$033B	;2-byte number of args
+000000r 2               ARGV	=	$033D	;8*2-bytes pointer to arg strings
+000000r 2               NCODE	= 	$034D	;1-byte NEXT CODE TO BE TRACED
+000000r 2               OPCREG	=	$034E	;3-byte OLD PROGRAM COUNTER VALUE
+000000r 2               OPCREGH	=	$034F
+000000r 2               OPCREGB	=	$0350
+000000r 2               CODE	=	$0351	;1-byte CURRENT CODE TO BE TRACED
+000000r 2               OPRNDL	=	$0352	;3-byte OPERANDS OF CURRENT INSTRUCTION
+000000r 2               OPRNDH	=	$0353
+000000r 2               OPRNDB	=	$0354
+000000r 2               ADDRMODE=	$0355	; ADDRESS MODE OF CURRENT OPCODE
+000000r 2               
+000000r 2               MNX	=	$0356 	;2-byte MNEMONIC INDEX
+000000r 2                                       ; FROM ATTRIBUTE TABLE
+000000r 2               OPLEN 	=	$0358   ;1-byte LENGTH OF OPERATION,
+000000r 2                                       ; INCLUDING INSTRUCTION
+000000r 2               MOVENEG	=	$0359	;4-byte MVP + operands + RTS
+000000r 2               MOVEBNK	=	$035A
+000000r 2               MOVERTS	=	$035C	;RTS
+000000r 2               
+000000r 2               MODBASE	=	$035D	;2-byte base for next module to be loaded
+000000r 2               
+000000r 2               MONTAB	=	$0360	;4*4-byte break-monitor pointer
+000000r 2               
+000000r 2               COLCNT	=	$0370	;
+000000r 2               COPVEC	=	$0371	;2-byte COP vector
+000000r 2               
+000000r 2               MOUSEX	=	$0373	;2-byte Mouse-X
+000000r 2               MOUSEY	=	$0375	;2-byte Mouse-Y
+000000r 2               MOUBUT	=	$0377	;Mouse-Button Bit7:links, Bit6:rechts
+000000r 2               
+000000r 2               NEXTFRE	=	$0378	;
+000000r 2               
+000000r 2               FNAME	= 	$0380	;128-byte buffer for line
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; page 4
+000000r 2               ;--------------------------------------------------------------
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew MC6845 graphics
+000000r 2               ;--------------------------------------------------------------
+000000r 2               crtadr		= $B800
+000000r 2               crtdata		= $B801
+000000r 2               
+000000r 2               crtcol0		= $B880
+000000r 2               crtcol1		= $B881
+000000r 2               crtcol2		= $B882
+000000r 2               crtcol3		= $B883
+000000r 2               crtcolb		= crtcol3
+000000r 2               
+000000r 2               crtcntl		= $B8C0
+000000r 2               crtirq		= $B8C1
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew MOS6551 serial card
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ;data6551	= $DB00
+000000r 2               ;status6551	= $DB01
+000000r 2               ;command6551	= $DB02
+000000r 2               ;control6551	= $DB03
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew YM2612 registers
+000000r 2               ;--------------------------------------------------------------
+000000r 2               YMADR0		= $BFB0
+000000r 2               YMDAT0		= $BFB1
+000000r 2               YMADR1		= $BFB2
+000000r 2               YMDAT1		= $BFB3
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew	Memory Control
+000000r 2               ;--------------------------------------------------------------
+000000r 2               MEMCNTL		= $BFC0
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew PS2-keyboard and SD-Card
+000000r 2               ;--------------------------------------------------------------
+000000r 2               PS2		= IO + $D0
+000000r 2               PS2DATA		= PS2 + 0	; keyboard scancode
+000000r 2               PS2STATUS	= PS2 + 1	; read: Bit0 = 0 scancode available
+000000r 2               SPIDATA		= PS2 + 2	; read: Bit0 serial data in, write: Bit7 serial data out
+000000r 2               SPIMOSI		= PS2 + 3	; write: Bit0: 1 = Mosi always 1, Bit1: write: CS of SDCard
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew Centronics 8-bit latch
+000000r 2               ;--------------------------------------------------------------
+000000r 2               CENTRONICS	= $BFE0
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; Homebrew MC68681 double serial card
+000000r 2               ;--------------------------------------------------------------
+000000r 2               SB		= $BFF0
+000000r 2               
+000000r 2               MODEA		= 0
+000000r 2               STATA		= 1
+000000r 2               CLOCKA		= 1
+000000r 2               COMMA		= 2
+000000r 2               RECA		= 3
+000000r 2               TRANSA		= 3
+000000r 2               IPCHANGE	= 4
+000000r 2               AUXCTRL		= 4
+000000r 2               ISR		= 5
+000000r 2               IMR		= 5
+000000r 2               CNTMSB		= 6
+000000r 2               CNTLSB		= 7
+000000r 2               MODEB		= 8
+000000r 2               STATB		= 9
+000000r 2               CLOCKB		= 9
+000000r 2               COMMB		= 10
+000000r 2               RECB		= 11
+000000r 2               TRANSB		= 11
+000000r 2               IVR		= 12
+000000r 2               INPORT		= 13
+000000r 2               OPCTRL		= 13
+000000r 2               STRTCNT		= 14
+000000r 2               OPSET		= 14
+000000r 2               STOPCNT		= 15
+000000r 2               OPRES		= 15
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; 6502 CPU vectors
+000000r 2               ;--------------------------------------------------------------
+000000r 2               NMI		= $FFFA
+000000r 2               RESET		= $FFFC
+000000r 2               IRQ		= $FFFE
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; FPGA misc. stuff
+000000r 2               ;--------------------------------------------------------------
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; RESET, TIMER, HARDWARE MULT.
+000000r 2               ;--------------------------------------------------------------
+000000r 2               SOFTRESET	= IO + $80
+000000r 2               TIMERLO 	= IO + $81
+000000r 2               TIMERHI		= IO + $82
+000000r 2               TIMERST		= IO + $83
+000000r 2               WORDLO		= IO + $84
+000000r 2               WORDHI		= IO + $85
+000000r 2               DOTS		= IO + $86
+000000r 2               
+000000r 2               CCONST5MS	= 62400-1
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; SPI SD-card interface
+000000r 2               ;--------------------------------------------------------------
+000000r 2               SPI		= IO + $90
+000000r 2               SPICNTL		= SPI
+000000r 2               SPISS		= SPI + 1
+000000r 2               SPIDAT		= SPI + 2
+000000r 2               SPISTAT		= SPI + 3
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; 16450 ACIA registers (Uart1, Mouse)
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ACIA1		= IO + $A0
+000000r 2               RBR1		= ACIA1
+000000r 2               THR1		= ACIA1
+000000r 2               IER1		= ACIA1 + 1
+000000r 2               IIR1		= ACIA1 + 2
+000000r 2               LCR1		= ACIA1 + 3
+000000r 2               MCR1		= ACIA1 + 4
+000000r 2               LSR1		= ACIA1 + 5
+000000r 2               MSR1		= ACIA1 + 6
+000000r 2               SCR1		= ACIA1 + 7
+000000r 2               DLL1		= ACIA1
+000000r 2               DLM1		= ACIA1 + 1
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; graphics system
+000000r 2               ;--------------------------------------------------------------
+000000r 2               DISP			= $FFFE00
+000000r 2               colorBorderLo		= DISP + 0
+000000r 2               colorBorderHi		= DISP + 1
+000000r 2               colorBackgroundLo	= DISP + 2
+000000r 2               colorBackgroundHi	= DISP + 3
+000000r 2               color00Lo		= DISP + 4
+000000r 2               color00Hi		= DISP + 5
+000000r 2               screenBaseLo		= DISP + 6
+000000r 2               screenBaseHi		= DISP + 7
+000000r 2               screenBaseBank		= DISP + 8
+000000r 2               control			= DISP + 9
+000000r 2               cursorLo		= DISP + 10
+000000r 2               cursorHi		= DISP + 11
+000000r 2               rasterLo		= DISP + 12
+000000r 2               rasterHi		= DISP + 13
+000000r 2               dispStatus		= DISP + 14
+000000r 2               vcountLo		= DISP + 15
+000000r 2               vcountHi		= DISP + 16
+000000r 2               ;spriteBaseLo		= DISP + 17
+000000r 2               ;spriteBaseHi		= DISP + 18
+000000r 2               spriteBaseBank		= DISP + 19
+000000r 2               spriteCntl		= DISP + 20
+000000r 2               sprite0addr		= DISP + 21
+000000r 2               sprite1addr             = DISP + 22
+000000r 2               sprite2addr             = DISP + 23
+000000r 2               sprite3addr             = DISP + 24
+000000r 2               sprite4addr             = DISP + 25
+000000r 2               sprite5addr             = DISP + 26
+000000r 2               sprite6addr             = DISP + 27
+000000r 2               sprite7addr             = DISP + 28
+000000r 2               xpos0			= DISP + 32
+000000r 2               xpos1			= DISP + 33
+000000r 2               xpos2			= DISP + 34
+000000r 2               xpos3			= DISP + 35
+000000r 2               xpos4			= DISP + 36
+000000r 2               xpos5			= DISP + 37
+000000r 2               xpos6			= DISP + 38
+000000r 2               xpos7			= DISP + 39
+000000r 2               xposHi			= DISP + 40
+000000r 2               
+000000r 2               palette 		= $FFFC00
+000000r 2               spritePalette		= $FFFE40
+000000r 2               sprite0			= $7E0000
+000000r 2               
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ; 16450 ACIA registers (Uart0)
+000000r 2               ;--------------------------------------------------------------
+000000r 2               ACIA0		= IO + $E0
+000000r 2               RBR0		= ACIA0
+000000r 2               THR0		= ACIA0
+000000r 2               IER0		= ACIA0 + 1
+000000r 2               IIR0		= ACIA0 + 2
+000000r 2               LCR0		= ACIA0 + 3
+000000r 2               MCR0		= ACIA0 + 4
+000000r 2               LSR0		= ACIA0 + 5
+000000r 2               MSR0		= ACIA0 + 6
+000000r 2               SCR0		= ACIA0 + 7
+000000r 2               DLL0		= ACIA0
+000000r 2               DLM0		= ACIA0 + 1
+000000r 2               
+000000r 2               SECPTRLO	= ACIA0 + 8
+000000r 2               SECPTRHI	= ACIA0 + 9
+000000r 2               READWRITE	= ACIA0 + 10
+000000r 2               BUFPTRLO	= ACIA0 + 11
+000000r 2               BUFPTRHI	= ACIA0 + 12
+000000r 2               
+000000r 2               
+000000r 1               
+000000r 1               ;00FFE4 00FFF4 COP
+000000r 1               ;00FFE6 00FFFE BRK
+000000r 1               ;00FFE8 00FFF8 ABORT
+000000r 1               ;00FFEA 00FFFA NMI
+000000r 1               ;       00FFFC RESET
+000000r 1               ;00FFEE 00FFFE IRQ
+000000r 1               
+000000r 1               		.org $FFE4
+00FFE4  1               
+00FFE4  1  55 E0        		.word jcopn	;00FFE4		COP
+00FFE6  1  36 E0        		.word jbrk      ;00FFE6		BRK
+00FFE8  1  30 E0        		.word jabortn	;00FFE8		ABORT
+00FFEA  1  30 E0        		.word jnmin     ;00FFEA		NMI
+00FFEC  1  00 00        		.word 0		;		RESET
+00FFEE  1  33 E0        		.word jirqn     ;00FFEE		IRQ
+00FFF0  1               
+00FFF0  1  00 00        		.word 0
+00FFF2  1  00 00        		.word 0
+00FFF4  1               
+00FFF4  1  30 E0        		.word jcope	;00FFF4 	COP
+00FFF6  1  00 00        		.word 0         ;
+00FFF8  1  30 E0        		.word jaborte   ;00FFF8 	ABORT
+00FFFA  1  30 E0        		.word jnmie     ;00FFFA 	NMI
+00FFFC  1  00 E0        		.word jkernel   ;00FFFC 	RESET
+00FFFE  1  30 E0        		.word jirqe     ;00FFFE 	IRQ
+00FFFE  1               

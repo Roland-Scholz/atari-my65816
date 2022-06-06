@@ -1,0 +1,1858 @@
+;		.include "homebrew.inc"
+;		.include "myos.inc"
+
+ .p816
+ .smart
+
+; ***********************************************
+; *                                             *
+; *                 DEBUG16                     *
+; *             A 65816 DEBUGGER                *
+; *                                             *
+; *                                             *
+; ***********************************************
+
+; .ORG $A00
+ DPAGE = $0000          ; LOCATION OF THIS APPLICATION’S
+ 
+; DIRECT PAGE STORAGE
+; TRACE REGISTERS
+
+; PCREG  = $80           ; PROGRAM COUNTER
+; PCREGH = PCREG+1
+; PCREGB = PCREGH+1      ; INCLUDING BANK
+
+; NCODE = $8000 ;PCREGB+1       ; NEXT CODE TO BE TRACED
+;
+; OPCREG = NCODE+1       ; OLD PROGRAM COUNTER VALUE
+; OPCREGH = OPCREG+1
+; OPCREGB = OPCREGH+1
+;
+; CODE = OPCREGB+1       ; CURRENT CODE TO BE TRACED
+;
+; OPRNDL = CODE+1        ; OPERANDS OF CURRENT
+; OPRNDH = OPRNDL+1      ; INSTRUCTION
+; OPRNDB = OPRNDH+1
+
+; XREG = OPRNDB+1        ; X REGISTER
+; XREGH = XREG+1
+
+; YREG = XREGH+1         ; Y REGISTER
+; YREGH = YREG+1
+
+; AREG = YREGH+1         ; ACCUMULATOR
+; AREGH = AREG+1
+
+; STACK = AREGH+1        ; STACK POINTER
+; STACKH = STACK+1
+
+; DIRREG = STACKH+1      ; DIRECT PAGE REGISTER
+; DIRREGH = DIRREG+1
+
+; DBREG = DIRREGH+1      ; DATA BANK REGISTER
+
+; PREG = DBREG+1         ; P STATUS REGISTER
+
+; EBIT = PREG+1          ; E BIT
+
+; TEMP = EBIT+2          ; TEMPORARY
+; TEMPH = TEMP+1
+; TEMPB = TEMPH+1
+
+; ADDRMODE = TEMPB+1     ; ADDRESS MODE OF CURRENT OPCODE
+
+; MNX = ADDRMODE+1       ; MNEMONIC INDEX
+                        ; FROM ATTRIBUTE TABLE
+
+; OPLEN = MNX+2          ; LENGTH OF OPERATION,
+                        ; INCLUDING INSTRUCTION
+
+ CR = EOL              ; CARRIAGE RETURN
+
+; M = $20                ; SYBOLIC NAMES FOR
+; IX = $10               ; STATUS REGISTER BITS
+ C = $01
+                        ; DIRECT PAGE
+
+disass24:
+		php
+		phb
+		phd
+		
+		phk
+		plb
+		
+		pea DPAGE
+		pld
+		
+		sep #M+IX
+		.a8
+		.i8
+		
+		jsr disass16
+		
+		pld
+		plb
+		plp
+		rtl
+
+disass16:
+		stz PREG
+		bra disass
+ 
+disass8:
+
+		lda #$30
+		sta PREG
+
+disass:
+
+; Default entry point.
+; Set address to dissemble as this program, the call LIST to disassemble.
+
+; LDA #0
+; STA EBIT
+; LDA #CR                ; Print a newline so we start on a new line
+ jsr jnewline
+; LDA #<MAIN             ; Start disassembly at this program
+; STA PCREG
+; LDA #>MAIN
+; STA PCREGH
+; STZ PCREGB             ; Set bank to zero
+; JSR LIST              ; Call LIST to disassemble
+; JSR TRACE              ; Call TRACE to trace
+; RTS                    ; Return to caller
+
+; ---------------------------------------L
+;
+; LIST
+; MAIN LOOP OF DISASSEMBLER FUNCTION
+;
+; ---------------------------------------L
+
+LIST:
+DISSone:
+		PHP                    ; SAVE ORIGINAL FLAGS
+TOP1:
+		lda #22
+		sta ADRCNT
+		
+		; CLC
+		; XCE                    ; SET NATIVE MODE
+		; PHP                    ; SAVE PREVIOUS MODE
+		
+		; PHD                    ; SAVE CURRENT DP
+		; PEA DPAGE
+		; PLD                    ; SET TO NEW DP
+
+TOP:            ; ANOP
+
+		REP #M
+		SEP #IX
+		.A16
+		.I8
+		
+		STZ MNX                ; CLEAR MNEMONIC INDEX
+		LDA PCREG              ; MOVE PROGRAM COUNTER
+		STA OPCREG             ; TO ‘OLD PROGRAM COUNTER’
+		LDX PCREGB             ; INCLUDING BANK
+		STX OPCREGB
+		LDA [PCREG]            ; GET NEXT INSTRUCTION
+		TAX
+		STX CODE               ; SAVE AS ‘CODE’
+		
+		JSR UPDATE             ; UPDATE ATTRIBUTE VARIABLES
+		JSR FLIST              ; FORM OBJECT CODE, MNEMONIC
+		JSR FRMOPRND           ; FORM OPERAND FIELD
+		
+		jsr jnewline
+		; JSR PAUSE              ; CHECK FOR USER PAUSE
+		; BCC @QUIT
+		; BVC @PRINT
+		dec ADRCNT
+		bne TOP
+ 
+@LOOP:
+; JSR PAUSE
+		.A8
+		jsr jchrin
+; lda IRQPS2S		;key pressed?
+; bne @LOOP		;no loop
+ 
+; inc IRQPS2S		;reset key status
+; lda IRQPS2D
+		cmp #ESC
+		beq @QUIT
+		cmp #'x'
+		beq @QUIT
+ 
+; BCC @QUIT
+; BVC @LOOP
+ 
+@PRINT:
+; JSR PRINTLN            ; PRINT IT
+
+		BRA TOP1                ; LOOP TIL END
+
+@QUIT:
+		PLP
+		RTS
+ 
+; -------------------------------------------
+;
+; FLIST – FORM IMAGE OF PROGRAM COUNTER,
+; OBJECT CODE, AND MNEMONIC IN ‘LINE’
+;
+; REQUIRES ATTRIBUTE VARIABLES TO BE PREVIOUSLY INITIALIZED
+; -------------------------------------------
+;
+
+FLIST:
+
+;		JSR CLRLN              ; BLANK ‘LINE’ VARIABLE
+
+		SEP #M+IX              ; SHORT REGISTERS
+		.A8
+		.I8
+
+;		LDY #0
+		LDA OPCREGB            ; GET BANK BYTE, FORM AS HEX
+		JSR jprinthex          ; STRING
+		LDA #':'               ; BANK DELIMITER
+;		STA LINE,Y
+;		INY
+		jsr jchrout
+		LDA OPCREGH            ; GET BYTES OF PROGRAM COUNTER
+		JSR jprinthex             ; FORM AS HEX STRING IN
+		LDA OPCREG             ; LINE
+		JSR jprinthex
+		jsr jspace
+
+;		LDY #10
+;		LDA CODE               ; STORE OPCODE AS HEX STRING
+;		JSR jprinthex
+		LDX #0
+
+MORE: 		CPX OPLEN         	; LIST OPERANDS, IF ANY
+		bcc PRINTOP
+		jsr jspace
+		jsr jspace
+		bra PRINTSPACE
+PRINTOP:
+		LDA OPRNDL-1,X
+		JSR jprinthex
+PRINTSPACE:
+		jsr jspace
+		INX
+		cpx #4
+		BNE MORE
+
+DONE:
+		jsr jspace
+		REP #M+IX
+		.A16
+		.I16
+		
+		LDA MNX                ; GET MNEMONIC INDEX,
+		ASL A                  ; MULTIPLY BY THREE
+		CLC                    ; (TIMES TWO PLUS SELF)
+		ADC MNX
+		CLC
+		ADC #MN
+		sta TEMP                   ; INDEX INTO MNEMONIC TABLE
+		
+		sep #M+IX
+		.A8
+		.I8
+ 
+		ldy #0
+MOVE:
+		lda (TEMP),y
+		jsr jchrout
+		iny
+		cpy #3
+		bne MOVE
+ 
+		; LDY #LINE+20           ; COPY INTO ‘LINE’
+		; LDA #2
+		;MOVE:
+		; MVN 0,0
+		jmp jspace
+		
+		; RTS
+
+; ---------------------------------------------
+;
+; FRMOPRND – –
+; FORMS OPERAND FIELD OF DISASSEMBLED INSTRUCTION
+;
+; OPLEN, ADDRMODE, AND OPRND MUST HAVE BEEN
+; INITIALIZED BY ‘UPDATE’
+; ---------------------------------------------
+;
+
+FRMOPRND:
+		SEP #M+IX
+		.A8
+		.I8
+		
+		LDY #28			; OFF SET INTO ‘LINE’ FOR OPERAND
+					; TO BEGIN
+		LDA ADDRMODE 		; GET ADDRESS MODE, MULTIPLY BY
+		ASL A        		; TWO, JUMP THROUGH ADDRESS
+		TAX          		; MODE JUMP TABLE TO PROPER
+		JMP (MODES,X)		; HANDLER
+
+FIMM:					; IMMEDIATE MODE – –
+		LDA #'#'		; OUTPUT POUND SIGN,
+;		STA LINE,Y		; ONE OR TWO
+;		INY			; OPERAND BYTES, DEPENDING
+		jsr jchrout
+		LDA OPLEN		; ON OPLEN
+		CMP #2
+		BEQ GOSHORT
+		JMP PODB
+GOSHORT:	JMP POB
+
+FABS:                  			; ABSOLUTE MODE – –
+		JMP PODB              	; JUST OUTPUT A DOUBLE BYTE
+
+FABSL:                  		; ABSOLUTE LONG – –
+		JMP POTB		; OUTPUT A TRIPLE BYTE
+
+FDIR:                   		; DIRECT MODE – –
+		JMP POB			; OUTPUT A SINGLE BYTE
+
+FACC:					; ACCUMULATOR – –
+		LDA #'A'		; JUST AN A
+; STA LINE,Y
+		jmp jchrout
+; RTS
+
+FIMP:                   		; IMPLIED – –
+		RTS                    	; NO OPERAND
+
+FINDINX:                ; INDIRECT INDEXED – –
+ JSR FIND               ; CALL ‘INDIRECT’, THEN FALL
+                        ; THROUGH TO INDEXED BY Y
+
+FINY:                   ; INDEXED BY Y MODES – –
+ LDA #','               ; TACK ON A ‘COMMA,Y'
+ jsr jchrout
+; STA LINE,Y
+; INY
+ LDA #'Y'
+; STA LINE,Y
+ jmp jchrout
+; RTS
+
+FINDINXL:               ; INDIRECT INDEXED LONG – –
+ JSR FINDL              ; CALL ‘INDIRECT LONG', THEN
+ JMP FINY               ; EXIT THROUGH INDEXED BY Y
+
+FINXIND:                ; INDEX INDIRECT – –
+ LDA #'('               ; PARENTHESIS
+; STA LINE,Y
+; INY
+ jsr jchrout
+ JSR POB                ; A SINGLE BYTE – –
+ JSR FINX               ; COMMA, X
+ LDA #')'               ; CLOSE.
+; STA LINE,Y
+; RTS
+ jmp jchrout
+ 
+FDIRINXX:               ; DIRECT INDEXED BY X – –
+ JSR POB                ; OUTPUT A BYTE,
+ JMP FINX               ; TACK ON COMMA, X
+
+FDIRINXY:               ; DIRECT INDEXED BY Y – –
+ JSR POB                ; OUTPUT A BYTE,
+ JMP FINY               ; TACK ON COMMA, Y
+
+FINX:                   ; INDEXED BY X – –
+ LDA #','               ; TACK ON A
+ jsr jchrout
+; STA LINE,Y             ; COMMA, X
+; INY                    ; (USED BY SEVERAL
+ LDA #'X'               ; MODES)
+ jmp jchrout
+; STA LINE,Y
+; INY
+; RTS
+
+FABSX:                  ; ABSOLUTE INDEXED BY X – –
+ JSR PODB               ; OUTPUT A DOUBLE BYTE,
+ JMP FINX               ; TACK ON A COMMA, X
+
+FABSLX:                 ; ABSOLUTE LONG BY X – –
+ JSR POTB               ; OUTPUT A TRIPLE BYTE,
+ JMP FINX               ; TACK ON COMMA, X
+
+FABSY:                  ; ABSOLUTE Y – –
+ JSR PODB               ; OUTPUT A DOUBLE BYTE,
+ JMP FINY               ; TACK ON COMMA,Y
+
+FPCRL:
+FPCR:                   ; PROGRAM COUNTER RELATIVE – –
+ LDA #$FF               ; SIGN EXTEND OPERAND
+ XBA
+ LDA OPRNDL
+ REP #M+C
+.A16
+ BMI OK
+ AND #$7F
+OK: ADC OPCREG          ; ADD TO PROGRAM COUNTER
+ INC A                  ; ADD TWO, WITHOUT CARRY
+ INC A
+ STA OPRNDL             ; STORE AS NEW ‘OPERAND'
+
+ SEP #M
+ .A8
+
+ JMP PODB ; NOW JUST DISPLAY A DOUBLE BYTE
+
+FCPRL:                  ; PROGRAM COUNTER RELATIVE LONG
+
+ REP #M+C
+ .A16
+
+ LDA OPRNDL             ; JUST ADD THE OPERAND
+ ADC OPCREG
+ CLC                    ; BUMP BY THREE, PAST INSTRCTION
+ ADC #3
+ STA OPRNDL             ; STORE AS NEW ‘OPERAND'
+
+ SEP #M
+ .A8
+
+ JMP PODB               ; PRINT A DOUBLE BYTE
+
+FABSIND:                ; ABSOLUTE INDIRECT
+ LDA #'('               ; SURROUND A DOUBLE BYTE
+ jsr jchrout
+; STA LINE,Y             ; WITH PARENTHESES
+; INY
+ JSR PODB
+ LDA #')'
+; STA LINE,Y
+ jmp jchrout
+; RTS
+
+FIND:                   ; INDIRECT – –
+ LDA #'('               ; SURROUND A SINGLE BYTE
+ jsr jchrout
+ ;STA LINE,Y             ; WITH PARENTESES
+ ;INY
+ JSR POB
+ LDA #')'
+ jmp jchrout
+; STA LINE,Y
+; INY
+; RTS
+
+FINDL:                  ; INDIRECT LONG – –
+ LDA #'['               ; SURROUND A SINGLE BYTE'
+ jsr jchrout
+
+; STA LINE,Y             ; WITH SQUARE BRACKTS
+; INY
+ JSR POB
+ LDA #']'
+; STA LINE,Y
+; INY
+ jmp jchrout
+; RTS
+
+FABSINXIND:             ; ABSOLUTE INDIRECT INDEXED
+ LDA #'('
+; STA LINE,Y             ; SURROUND A CALL TO ‘ABSOLUTE
+; INY                    ; INDEXED' WITH PARENTHESES
+ jsr jchrout
+ JSR FABSX
+ LDA #')'
+; STA LINE,Y
+; RTS
+ jmp jchrout
+
+FSTACK:                 ; STACK – – IMPLIED
+ RTS
+
+FSTACKREL:              ; STACK RELATIVE
+ JSR FDIR               ; JUST LIKE
+ LDA #','                ; DIRECT INDEXED, BUT WITH
+ jsr jchrout
+; STA LINE,Y             ; AN ‘S'
+; INY
+ LDA #'S'
+; STA LINE,Y
+; INY
+; RTS
+ jmp jchrout
+
+FSRINDINX:              ; STACK RELATIVE INDIRECT INDEX
+ LDA #'('
+; STA LINE,Y             ; SURROUND STACK RELATIVE WITH
+; INY                    ; PARENTHESES, THEN
+ jsr jchrout
+ JSR FSTACKREL
+ LDA #')'
+ jsr jchrout
+
+; STA LINE,Y
+; INY
+ JMP FINY               ; TACK ON A COMMA,Y
+
+FBLOCK:                 ; BLOCK MOVE
+
+; REP #M
+; LDA OPRNDL             ; MAKE HUMAN-READABLE:
+; XBA                    ; SWAP SOURCE, DEST
+; STA OPRNDL
+ 
+ SEP #M
+; jmp PODB
+ LDA OPRNDL
+ JSR POB                ; OUTPUT THE SOURCE
+ LDA #','               ; THEN COMMA
+ jsr jchrout
+
+; STA LINE,Y
+; INY
+ 
+ REP #M
+ LDA OPRNDL
+ XBA                    ; SWAP DEST INTO OPRNDL
+ STA OPRNDL             ; THEN PRINT ONE BYTE
+ SEP #M
+ JMP POB
+
+;-----------------------------------------------
+;
+; POB, PODB, POTB
+; PUT OPERAND (DOUBLE, TRIPLE) BYTE
+;
+; PUTS OPRNDL (OPRNDH, OPRNDB) IN LINE AS HEX VALUE
+; WITH ‘$' PREFIX
+;
+; ASSUMES SHORT ACCUMULATOR AND INSEX REGISTERS
+; (CALLED BY FOPRND)
+;-----------------------------------------------
+;
+
+POB:
+ .A8
+ .I8
+
+; PRINT:
+ LDX #0                 ; ONE OPERAND BYTE
+ BRA IN                 ; SKIP
+PODB:
+ LDX #1                 ; TWO OPERAND BYTES
+ BRA IN                 ; SKIP
+POTB:
+ LDX #2                 ; THREE OPERAND BYTES
+                        ; FALL THROUGH
+IN: LDA #'$'            ; PRINT LEAD-IN
+; STA LINE,Y
+; INY
+ jsr jchrout
+
+@MORE: LDA OPRNDL,X     ; LOOP THROUGH OPERAND
+ JSR jprinthex          ; HIGH TO LOW
+ DEX
+ BPL @MORE
+ RTS
+
+; ------------------------------------------
+;
+; STEP CHECKS FOR USER PAUSE SIGNAL
+; (KEYSTROKE)
+;
+; CONTAINS MACHINE-DEPENDENT CODE
+; FOR APPLE II
+; ------------------------------------------
+;
+
+STEP:
+; KEYBD = $C000         ; Apple II keyboard
+; KEYSTB = $C010        ; Apple II keyboard
+
+; KEYBD = $D011          ; Apple 1/Replica 1 keyboard
+; KEYSTB = $D010         ; Apple 1/Replica 1 keyboard
+
+; ESC = $9B              ; ESCAPE KEY (HIGH BIT SET)
+ OVL = $40                ; MASK FOR OVERFLOW FLAG
+
+
+ PHP                    ; SAVE MODES
+ SEP #M+IX
+ .A8
+ .I8
+ BRA WAIT
+
+;PAUSE:                  ; FOR ‘PAUSE' CALL
+; PHP
+; SEP #M+IX		;all 8-bit
+ 
+; ldy IRQPS2S
+; bne RETNCR
+ 
+; inc IRQPS2S
+
+; LDA KEYBD              ; CHECK FOR KEYPRESS
+; BPL RETNCR             ; NONE; DON'T PAUSE
+
+; LDA KEYSTB             ; CLEAR STROBE
+			 ; IF KEYSTROKE
+WAIT: ;LDA KEYBD         ; LOOP FOR NEXT KEY
+; BPL WAIT
+; LDA KEYSTB             ; CLEAR STROBE
+; lda IRQPS2D 
+; CMP #ESC               ; IF ESC RETURN WITH
+; beq RETEQ
+; cmp #'x'
+; BNE RETNESC
+
+;RETEQ: PLP              ; CARRY CLEAR (QUIT)
+; NOP
+; CLC
+; RTS
+
+;RETNESC: CMP #CR
+; BNE RETNCR
+; PLP
+; SEP #C+OVL
+; RTS
+
+;RETNCR: ;LDA KEYSTB
+; PLP                    ; ELSE SET
+; SEC
+; CLV
+; RTS                    ; (CONTINUE)
+
+; ------------------------------------------
+; PUTHEX
+;
+; CONVERTS NUMBER IN ACCUMULATOR TO HEX STRING
+; STORED AT LINE,Y
+;
+; SAVE AND RESTORED MODE FLAGS
+; ------------------------------------------
+
+;PUTHEX:
+; PHP                    ; SAVE MODE FLAGS
+; JSR MAKEHEX            ; GET ASCII CODES A, B
+; REP #M
+; .A16
+; STA LINE,Y             ; PUT TWO BYTES AT LINE
+; INY                    ; INCREMENT Y PAST THEM
+; INY
+; PLP                    ; RESTORE MODE
+; RTS                    ; RETURN
+
+;MAKEHEX: SEP #M+IX      ; ALL EIGHT BIT
+; .A8
+; .I8
+;
+; PHA                    ; SAVE VALUE TO BE CONVERTED
+; AND #$0F               ; MASK OFF LOW NIBBLE
+; JSR FORMNIB            ; CONVERT TO HEX
+; XBA                    ; STORE IN B
+; PLA                    ; RESTORE VALUE
+; LSR A                  ; SHIFT HIGH NIBBLE
+; LSR A                  ; TO LOW NIBBLE
+; LSR A
+; LSR A
+;                        ; FALL THROUGH TO CONVERT
+;
+;FORMNIB: CMP #$A        ; IF GREATER THAN OR EQUAL TO
+; BCS HEXDIG             ; 10, USE DIGITS A..F
+;; CLC                    ; ELSE SIMPLY ADD ‘0' TO
+; ADC #'0'               ; CONVERT TO ASCII
+; RTS
+;
+;HEXDIG: ADC #'A'-11     ; SUBTRACT 11, ADD ‘A'
+; RTS                    ; (SORT OF)
+
+; ---------------------------------------
+;
+; CLRLN
+;
+; CLEARS ‘LINE' WITH BLANKS
+;
+; SAVES AND RESTORES MODE FLAGS
+;
+; ---------------------------------------
+;
+
+;CLRLN:
+; PHP
+; REP #M+IX
+; .A16
+; .I16
+;
+; LDA #$2020             ; two spaces
+; LDX #74
+;
+;LOOP: STA LINE,X
+; DEX
+; DEX
+; BPL LOOP
+; PLP
+; RTS
+
+
+
+; -----------------------------------------
+;
+; UPDATE
+;
+; UPDATES ATTRIBUTE VARIABLES BASED ON OPCODE
+; PASSED IN ACCUMULATOR BY LOOKING IN ATTRIBUTE
+; TABLES
+;
+; SAVES AND RESTORES MODE FLAGS
+; -----------------------------------------
+
+UPDATE:
+
+		LDYI = $A0           ; OPCODE VALUE TIMES TWO
+		LDXI = $A2
+		CPYI = $C0
+		CPXI = $E0
+		REPI = $C2
+		SEPI = $E2
+		
+		PHP                    ; SAVE STATE
+		
+		SEP #M+IX
+		.A8
+		.I8
+		
+		tax
+		ldy #1 
+		cmp #REPI		; REP opcode?
+		bne UPDATE1
+		lda [PCREG],y
+		trb PREG
+		bra UPDATE2
+ 
+UPDATE1:
+		cmp #SEPI		; SEP
+		bne UPDATE2
+		lda [PCREG],y
+		tsb PREG
+ 
+UPDATE2:
+		txa
+		
+		REP #M+IX
+		.A16
+		.I16
+		
+		AND #$FF               ; MASK HIGH BYTE
+		ASL A                  ; TIMES TWO
+		
+		TAY
+		LDA ATRIBL,Y           ; INDEX INTO ATTRIBUTE TABLE
+		XBA                    ; SWAP ORDER OF ENTRIES
+		STA ADDRMODE           ; SAVE ADDRMODE, MNEMONIC INDEX
+		
+		TXY
+		TAX                    ; ADDRMODE TO X (LOW)
+		TYA                    ; OPCODE TO ACCUM
+		
+		SEP #M+IX
+		.A8
+		.I8
+		
+		LDY LENS-1,X           ; GET LENGTH OF OPERATION
+		STY OPLEN
+		
+;		pha
+;		tya
+;		jsr	jprinthex		
+;		pla
+		
+		
+		
+		; LDX EBIT               ; EMULATION MODE?
+		; CPX #1                 ; TEST BIT ZERO
+		; BEQ SHORT              ; YES ALL IMMEDIATE ARE
+					; SHORT
+		; BIT #$10               ; IS BIT 4 EVEN?
+		; BNE SHORT              ; NO, CAN'T BE IMMEDIATE
+		
+		CMP #LDXI              ; IS IT LDX #?
+		BEQ CHKX
+		CMP #LDYI              ; IS IT LDY #?
+		BEQ CHKX
+		CMP #CPXI              ; IS IT CPX #?
+		BEQ CHKX
+		CMP #CPYI              ; IS IT CPY #?
+		BEQ CHKX
+		
+		AND #$1F               ; IS LSD+2 ZERO?
+		CMP #$09
+		BEQ CHKA               ; CHECK ACCUMULATOR OPCODES
+		BNE SHORT
+ 
+CHKX:
+		LDA PREG               ; IF IT IS, WHAT IS FLAG SETTING?
+		AND #IX
+		BEQ LONG               ; CLEAR – 16 BIT MODE
+		BNE SHORT              ; SET – 8 BIT MODE
+
+CHKA:
+		LDA PREG		; WHAT IS FLAG SETTING?
+		AND #M
+		BNE SHORT		; NO, 8 BIT MODE
+
+LONG:
+		INC OPLEN		; LONG IMMEDIATE LENGTH IS
+					; ONE MORE THEN FOUND IN TABLE
+
+SHORT: 
+		REP #M
+		.A16
+		
+		LDY #0
+		BRA LOOPIN
+
+LOOP1:
+		SEP #M
+		LDA [PCREG]      	; LOAD 8 BITS
+		STA OPRNDL-1,Y         ; SAVE
+		REP #M
+ 
+LOOPIN: 
+		INC PCREG       	; MOVE PC PAST NEXT INSTRUCTION
+		INY                    ; BYTE
+		CPY OPLEN              ; MOVED ALL OPERAND BYTES?
+		BNE LOOP1              ; NO, CONTINUE
+
+;DONE:
+		PLP
+		RTS
+
+; -----------------------------------------
+;
+; PRINTLN
+;
+; MACHINE-DEPENDENT CODE TO OUTPUT
+; THE STRING STORED AT ‘LINE'
+;
+; SAVES AND RESTORED MODE FLAGS
+; -----------------------------------------
+;
+
+;PRINTLN:
+;; COUT = $FDED          ; APPLE II CHARACTER OUTPUT ROUTINE
+;;COUT = $FFEF            ; APPLE 1/Replica 1 ROM CHARACTER OUTPUT ROUTINE
+;COUT = jchrout
+; PHP                    ; SAVE STATUS
+;; PHD                    ; SAVE DIRECT PAGE
+;; PEA 0                  ; SWITCH TO PAGE ZERO
+;; PLD                    ; FOR EMULATION
+;
+; SEP	#M+IX
+; .A8
+; .I8
+;; SEC                    ; SWITCH TO EMULATION
+;; XCE
+;
+; LDY #0
+;
+;@LOOP: LDA LINE,Y       ; LOOP UNTIL STRING TERMINATOR
+; BEQ @DONE              ; REACHED
+; JSR COUT
+; INY
+; BRA @LOOP
+;
+;@DONE:
+;; CLC              ; RESTORE NATIVE MODE
+;; XCE
+;; PLD                    ; RESTORE DIRECT PAGE
+; PLP                    ; RESTORE MODE FLAGS
+; RTS
+
+
+NBRKIN:					; ENTRY FROM NATIVE MODE FOR TRACER
+		REP	#M+IX
+		.A16
+		.I16
+		
+		PHA
+		PHX
+		PHY
+		PHB			; 1-byte, SAVE DATA BANK	
+		PHD			; 2-byte, DIRECT PAGE
+		
+		PEA	DPAGE		; SWITCH TO APPLICATION
+		PLD			; DIRECT PAGE
+		
+					;STACK: DIRECT L 	1	$1f0
+					;	DIRECT H	2	$1f1
+					;	DATA BANK	3
+					;	Y L		4
+					;	Y H		5
+					;	X L		6
+					;	X H		7
+					;	A L		8
+					;	A H		9
+					;	PREGS		10	pushed by BRK intruction
+					;	PC L		11	pushed by BRK intruction
+					;	PC H		12	pushed by BRK intruction
+					;	PROGRAM BANK	13	pushed by BRK intruction
+					;	RETURN-1 L 	14	e.g. pushed by JSR
+					;	RETURN-H H 	15
+
+		phk			; data bank = program bank
+		plb
+
+		lda	11,S
+		dea	
+		dea	
+		sta	11,S
+		sta	PCREG
+		sta	OPCREG
+
+	
+		sep	#M+IX
+		.A8
+		.I8
+		
+		stz	DEVICNO
+		
+		lda	13,S
+		sta	PCREGB
+		sta	OPCREGB
+
+		lda	NCODE
+		bne	NOBRK
+		
+		rep	#M
+		lda	11,S
+		ina
+		sta	11,S
+		sep	#M
+
+NOBRK:		lda	NCODE
+		sta	[PCREG]
+		sta	CODE
+			
+		jsr	jspace
+		jsr	jnewline
+		jsr	UPDATE		; UPDATE ATTRIBUTE VARIABLES
+		jsr	FLIST		; FORM OBJECT CODE, MNEMONIC
+		jsr	FRMOPRND	
+		
+		ldx	#<BRKSTR
+		ldy	#>BRKSTR
+		jsr	jprint
+		
+		
+		rep	#M
+		.A16
+
+;		ldy	#40		;print at pos 41
+		lda	8,S		;load accu from stack
+		jsr	putword
+
+		lda	6,S		;load X from stack
+		jsr	putword
+
+		lda	4,S		;load Y from stack
+		jsr	putword
+
+		tsc			;load stack pointer
+		clc	
+		adc	#13		;add stuff from BRK routine
+		jsr	putword
+			
+		lda	1,S		;load direct page
+		jsr	putword
+			
+		sep	#M+IX
+		.A8	
+		.I8	
+			
+		lda	3,S		;load data bank
+		jsr	jprinthex
+		jsr	jspace
+ 
+		ldx 	#7
+		lda 	10,S
+		sta 	PREG
+IRQBIN:		asl	
+		pha	
+		lda 	#'0'
+		adc 	#0
+;		iny
+;		sta	LINE,y
+		jsr	jchrout
+		pla	
+		dex
+		bpl 	IRQBIN
+
+		jsr	jnewline
+		jsr 	PRTDASH
+		
+		ldx 	#0
+IRQDUMP2:	lda 	MONACT,x
+		beq 	IRQDUMP1
+		txa	
+		asl
+		asl
+		tay	
+		lda 	MONTAB,y
+		sta 	memptr
+		lda 	MONTAB+1,y
+		sta 	memptr+1
+		
+		lda	memptr+2
+		pha
+		
+		lda	MONTAB+2,y
+		sta	memptr+2
+		jsr 	jmemdump16
+		pla
+		sta	memptr+2
+IRQDUMP1:	inx	
+		cpx 	#4
+		bne 	IRQDUMP2
+		
+		jsr 	PRTDASH
+
+enterkey:	jsr	jnewline
+		lda 	#'>'
+		jsr 	jchrout
+		jsr 	jchrin
+		jsr 	jchrout
+		
+		cmp	#'1'
+                bcc	enterm
+                cmp	#'4'+1
+                bcs	enterm
+		jsr	setmonitor
+		bra	enterkey
+		
+enterm:		cmp	#'m'
+		bne	enterr
+		jsr	jsetaddress
+		jsr	jmemdump
+		bra	enterkey
+
+enterr:		
+		.IF PLATFORM=0
+		cmp	#'r'
+		bne	enterx
+		jmp	reset
+		.ENDIF
+		
+enterx:		ldx	OPCREG
+		stx	PCREG
+		ldx	OPCREG+1
+		stx	PCREG+1
+		cmp	#'x'
+		beq	NBRKEND
+		
+enterend:	sta	gethex_A
+
+		lda	CODE
+		jsr	UPDATE
+		jsr	CHKSPCL		; CHECK TO SEE IF THIS CAUSES A
+					; TRANSFER
+					
+		sep	#M+IX
+		.A8
+		.I8
+
+		lda	CODE
+		beq	NBRKEND
+
+		lda	[PCREG]		; GET NEXT OPCODE TO BE EXECUTED
+					; (ON NEXT LOOP THROUGH)
+		sta	NCODE		; SAVE IT
+		lda	#0		; PUT A BREAK ($00) THERE TO
+					; REGAIN CONTROL
+		sta	[PCREG]
+
+		
+NBRKEND:	inc	DEVICNO
+		
+		rep	#M+IX
+		.A16
+		.I16
+		
+		pld
+		plb
+		ply
+		plx
+		pla
+		rti
+
+
+setmonitor:	.A8
+		.I8
+		sec
+		sbc	#'1'
+		tax
+		ldy	MONACT,x
+		beq	setmonitor1
+		stz	MONACT,x
+		rts
+		
+setmonitor1:	pha
+		asl
+		asl
+		tax
+		jsr	inputnibble
+		asl
+		asl
+		asl
+		asl
+		sta	MONTAB+2,x
+		jsr	inputnibble
+		ora	MONTAB+2,x
+		sta	MONTAB+2,x
+		jsr	setaddress
+		cmp	#'x'
+		beq	setmonitor9
+
+		plx
+		ina
+		sta	MONACT,x
+		txa
+		asl
+		asl
+		tax	
+		lda	memptr
+		sta	MONTAB,x
+		lda	memptr+1
+		sta	MONTAB+1,x
+setmonitor9:	rts
+
+
+PRTDASH:	ldx	#74
+		lda	#'-'
+prtdash1:	jsr	jchrout
+		dex
+		bpl	prtdash1
+		jmp	jnewline
+
+
+putword:	php
+		sep	#M+IX
+		xba
+		jsr	jprinthex
+		xba
+		jsr	puthexc
+		plp
+		rts
+
+puthexc:	jsr 	jprinthex
+		jmp	jspace
+		
+BRKSTR:		.byte	EOL, EOL
+;                                 1         2         3         4         5         6         7
+;                        1234567890123456789012345678901234567890123456789012345678901234567890123456
+		.byte	"A    X    Y    SP   DIR  DB NVMXDIZC" 
+		.byte	EOL,0
+
+;LINE:
+;                                 1         2         3         4         5         6         7         8
+;       	         12345678901234567890123456789012345678901234567890123456789012345678901234567890
+;		.byte	"                                                                            "
+;		.byte	EOL, $00
+ 
+; --------------------------------------------L
+; CHKSPCL
+;
+; CHECK CURRENT OPCODE (IN CODE) FOR SPECIAL CASES
+; INSTRUCTIONS WHICH TRANSFER CONTROL (JMP, BRA, ETC.)
+;
+; ASSUMES SHORTA, LONGI CALLED BY EBRKIN
+; --------------------------------------------L
+;
+
+CHKSPCL:;	sep	#M
+		.A8
+		rep	#IX
+		.I16
+
+		ldx	#SCX-SCODES
+		txa			; clear B (SCX-SCODES < 256)
+		lda	CODE
+
+@LOOP:		cmp	SCODES,X	; CHECK TO SEE IF CURRENT OPCODE
+		beq	HIT		; IS IN EXCEPTION TABLE
+		dex
+		bpl	@LOOP
+		rts			; EXIT IF NOT
+
+HIT:		txa			; IF INDEX WAS LESS THAN 9, IT'S
+		cmp	#9		; A BRANCH
+		bcs	NOTBR
+			
+		lsr	A		; SEE IF ‘ODD OR EVEN'
+		tax	
+		lda	PMASK,X		; GET MASK TO SELECT CORRECT
+					; PREG BIT
+		and	PREG		; IS IT SET?
+			
+		bcs	BBS		; IF INDEX WAS ODD, BRANCH IF
+					; PREG BIT IS SET
+		beq	DOBRANCH	; ELSE IF EVEN, BRANCH IF CLEAR
+		rts
+
+BBS:		bne	DOBRANCH	; "BRANCH IF BIT SET"
+		rts
+
+NOTBR:		asl	A		; NOT A BRANCH INSTRUCTION;
+					; MULTIPLY BY TWO
+		tax			; AND INDEX INTO HANDLER JUMP
+					; TABLE
+;		rep	#IX
+		jmp	(SPJMP-18,X)	; BIAS JUMP TABLE BY 9
+
+DOBRANCH:
+		lda	#$FF		; SET ACCUMULATOR BYTE HIGH
+					; (ANTICIPATE NEGATIVE)
+		xba			; AND SIGN EXTEND INTO X
+
+		lda	OPRNDL
+;		jsr	jprinthex
+		
+		rep	#M+IX+C		; MAKE REGS LONG; CLEAR CARRY
+		.A16			; (ANTICIPATE ADC)
+		.I16
+
+		bmi	@OK		; NUMBER WAS NEGATIVE; ALL IS OK
+		
+		and	#$7F		; CLEAR HIGH BYTE OF ACCUM
+					; (POSITIVE NUMBER)
+@OK:		
+		adc	PCREG
+		sta	PCREG
+		
+		SEP	#M+IX
+		.A8
+		.I8
+		
+;		jsr	jprinthex
+;		xba
+;		jsr	jprinthex
+		
+		SEP	#M		; RETURN WITH ACCUM SHORT
+		rts
+
+		.A8
+		.I16
+SBRK:					; THESE ARE NOT IMPLEMENTED!
+SRTI:					; (AN EXERCISE FOR READER)
+SCOP:
+		rts
+
+SJSRABS:;	php
+	;	pla
+	;	jsr	jprinthex
+	;	lda	OPRNDL+1
+	;	jsr	jprinthex
+	;	lda	OPRNDL
+	;	jsr	jprinthex
+		
+		lda	gethex_A	; ABSOLUTES
+		cmp	#'s'
+		beq	SJMPABSEX
+SJMPABS:
+		ldx	OPRNDL		; MOVE OPERAND TO PC
+		stx	PCREG
+
+;		rep	#M
+;		txa
+;		sep	#M
+;		xba
+;		jsr	jprinthex
+;		xba
+;		jsr	jprinthex		
+;		lda	PCREG+1
+;		jsr	jprinthex
+;		lda	PCREG
+;		jsr	jprinthex
+SJMPABSEX:	rts
+
+SBRL:                   		; LONG BRANCH
+		REP	#M+C		; LONG ACCUM AND CLEAR CARRY
+		.A16
+		LDA	OPRNDL		; ADD DISPLACMENT TO
+		ADC	PCREG		; PROGRAM COUNTER
+		STA	PCREG
+;		SEP	#M
+		.A8
+		RTS
+
+SJSRABSL: 	lda	gethex_A	; ABSOLUTES
+		cmp	#'s'
+		beq	SJMPABSLEX	; ABSOLUTE LONGS
+SJMPABSL:
+		LDX	OPRNDL		; MOVE OPERAND, INCLUDING BANK,
+		STX	PCREG		; TO PROGRAM COUNTER
+		LDA	OPRNDB
+		STA	PCREGB
+SJMPABSLEX:	RTS
+
+SRTS:		REP	#M+IX		; RETURN
+		.A16
+		.I16
+
+		LDA	16,S		; PEEK ON STACK	
+		INA			; ADD ONE TO GET TRUE RETURN
+		STA	PCREG		; VALUE
+		
+;		SEP	#M+IX
+;		.A8
+;		.I8
+;		xba
+;		jsr	jprinthex
+;		xba
+;		jsr	jprinthex
+		
+		RTS
+
+SRTL:		REP	#M+IX		;
+		.A16
+		.I16
+		LDA	16,S		; PEEK ON STACK	
+		INA			; ADD ONE TO GET TRUE RETURN
+		STA	PCREG		; VALUE
+		
+		SEP	#M
+		LDA	18,S
+		STA	PCREGB
+		RTS
+
+SJMPIND:				; INDIRECT
+		LDX	OPRNDL		; GET OPERAND
+		
+		REP	#M
+		.A16
+		LDA	0,X		; JMP IND ALWAYS IN BANK ZERO
+		STA	PCREG
+;		SEP	#M
+;		.A8
+		RTS
+
+SJMPINDL:
+		JSR	SJMPIND		; SAME AS JMP INDIRECT,
+		INX			; PLUS BANK BYTE
+		INX
+		LDA	0,X		; ACCUM IS SHORT NOW
+		STA	PCREGB
+		RTS
+
+SJMPINDX:				; INDEX JUMPS
+SJSRINDX:	REP	#M
+		.A16
+		
+		CLC
+		LDA	8,S		; GET X-reg (index = 6+2), LET CPU DO ADDITION
+		ADC	OPRNDL		; GET INSIRECT POINTER
+		STA	TEMP
+		
+		SEP	#M
+		LDA	PCREGB		; INDEXED JUMPS ARE IN PROGRAM
+		STA	TEMP+2		; BANK
+		
+;		lda	TEMP+1
+;		jsr	jprinthex
+;		lda	TEMP
+;		jsr	jprinthex
+		
+		REP	#M
+		LDA	[TEMP]
+		STA	PCREG
+;		SEP	#M
+		
+		RTS
+ 
+; 
+;
+; SP JMP
+; JUMP TABLE FOR ‘SPECIAL' OPCODE HANDLERS
+; -----------------------------------------------
+;
+
+SPJMP:					; JUMP TABLE FOR
+		.word SBRK		; NON-BRANCH HANDLERS
+		.word SJSRABS
+		.word SRTI
+		.word SRTS
+		.word SCOP
+		.word SJSRABSL
+		.word SBRL
+		.word SRTL
+		.word SJMPABS
+		.word SJMPABSL
+		.word SJMPIND
+		.word SJMPINDX
+		.word SJMPINDL
+		.word SJSRINDX
+
+; -----------------------------------------------
+;
+; PMASK
+; STATUS REGISTER MASKS FOR BRANCH HANDLING CODE
+; -----------------------------------------------
+;
+
+PMASK:                  ; MASKS FOR STATUS REGISTER
+ .byte $80     ; N FLAG
+ .byte $40     ; V FLAG
+ .byte $01     ; C FLAG
+ .byte $02     ; Z FLAG
+ .byte $00     ; BRA
+
+SCODES: ; SPECIAL OPCODES
+
+ .byte $10     ; BPL
+ .byte $30     ; BMI
+ .byte $50     ; BVC
+ .byte $70     ; BVS
+ .byte $90     ; BCC
+ .byte $B0     ; BCS
+ .byte $D0     ; BNE
+ .byte $F0     ; BEQ
+ .byte $80     ; BRA
+ .byte $00     ; BRK
+ .byte $20     ; JSR
+ .byte $40     ; RTI
+ .byte $60     ; RTS
+ .byte $02     ; COP
+ .byte $22     ; JSR ABSL
+ .byte $82     ; BRL
+ .byte $6B     ; RTL
+ .byte $4C     ; JMP ABS
+ .byte $5C     ; JMP ABSL
+ .byte $6C     ; JMP ()
+ .byte $7C     ; JMP (,X)
+ .byte $DC     ; JMP [ ]
+SCX:
+ .byte $FC     ; JSR (,X)
+
+
+;	.ENDIF
+	
+	
+MN:
+ .byte $00,$00,$00
+ .byte "ADC" ; 1
+ .byte "AND" ; 2
+ .byte "ASL" ; 3
+ .byte "BCC" ; 4
+ .byte "BCS" ; 5
+ .byte "BEQ" ; 6
+ .byte "BIT" ; 7
+ .byte "BMI" ; 8
+ .byte "BNE" ; 9
+ .byte "BPL" ; 10
+ .byte "BRK" ; 11
+ .byte "BVC" ; 12
+ .byte "BVS" ; 13
+ .byte "CLC" ; 14
+ .byte "CLD" ; 15
+ .byte "CLI" ; 16
+ .byte "CLV" ; 17
+ .byte "CMP" ; 18
+ .byte "CPX" ; 19
+ .byte "CPY" ; 20
+ .byte "DEC" ; 21
+ .byte "DEX" ; 22
+ .byte "DEY" ; 23
+ .byte "EOR" ; 24
+ .byte "INC" ; 25
+ .byte "INX" ; 26
+ .byte "INY" ; 27
+ .byte "JMP" ; 28
+ .byte "JSR" ; 29
+ .byte "LDA" ; 30
+ .byte "LDX" ; 31
+ .byte "LDY" ; 32
+ .byte "LSR" ; 33
+ .byte "NOP" ; 34
+ .byte "ORA" ; 35
+ .byte "PHA" ; 36
+ .byte "PHP" ; 37
+ .byte "PLA" ; 38
+ .byte "PLP" ; 39
+ .byte "ROL" ; 40
+ .byte "ROR" ; 41
+ .byte "RTI" ; 42
+ .byte "RTS" ; 43
+ .byte "SBC" ; 44
+ .byte "SEC" ; 45
+ .byte "SED" ; 46
+ .byte "SEI" ; 47
+ .byte "STA" ; 48
+ .byte "STX" ; 49
+ .byte "STY" ; 50
+ .byte "TAX" ; 51
+ .byte "TAY" ; 52
+ .byte "TSX" ; 53
+ .byte "TXA" ; 54
+ .byte "TXS" ; 55
+ .byte "TYA" ; 56
+ .byte "BRA" ; 57
+ .byte "PLX" ; 58
+ .byte "PLY" ; 59
+ .byte "PHX" ; 60
+ .byte "PHY" ; 61
+ .byte "STZ" ; 62
+ .byte "TRB" ; 63
+ .byte "TSB" ; 64
+
+ .byte "PEA" ; 65
+ .byte "PEI" ; 66
+ .byte "PER" ; 67
+ .byte "PLB" ; 68
+ .byte "PLD" ; 69
+ .byte "PHB" ; 70
+ .byte "PHD" ; 71
+ .byte "PHK" ; 72
+
+ .byte "REP" ; 73
+ .byte "SEP" ; 74
+
+ .byte "TCD" ; 75
+ .byte "TDC" ; 76
+ .byte "TCS" ; 77
+ .byte "TSC" ; 78
+ .byte "TXY" ; 79
+ .byte "TYX" ; 80
+ .byte "XBA" ; 81
+ .byte "XCE" ; 82
+
+ .byte "BRL" ; 83
+ .byte "JSL" ; 84
+ .byte "RTL" ; 85
+ .byte "MVN" ; 86
+ .byte "MVP" ; 87
+ .byte "COP" ; 88
+ .byte "WAI" ; 89
+ .byte "STP" ; 90
+ .byte "WDM" ; 91
+
+MODES:
+ .res 2
+ .word FIMM ; 1
+ .word FABS ; 2
+ .word FABSL ; 3
+ .word FDIR ; 4
+ .word FACC ; 5
+ .word FIMP ; 6
+ .word FINDINX ; 7
+ .word FINDINXL ; 8
+ .word FINXIND ; 9
+ .word FDIRINXX ; 10
+ .word FDIRINXY ; 11
+ .word FABSX ; 12
+ .word FABSLX ; 13
+ .word FABSY ; 14
+ .word FPCR ; 15
+ .word FPCRL ; 16
+ .word FABSIND ; 17
+ .word FIND ; 18
+ .word FINDL ; 19
+ .word FABSINXIND ; 20
+ .word FSTACK ; 21
+ .word FSTACKREL ; 22
+ .word FSRINDINX ; 23
+ .word FBLOCK ; 24
+
+LENS:
+ .byte $02 ; IMM
+ .byte $03 ; ABS
+ .byte $04 ; ABS LONG
+ .byte $02 ; DIRECT
+ .byte $01 ; ACC
+ .byte $01 ; IMPLIED
+ .byte $02 ; DIR IND INX
+ .byte $02 ; DIR IND INX L
+ .byte $02 ; DIR INX IND
+ .byte $02 ; DIR INX X
+ .byte $02 ; DIR INX Y
+ .byte $03 ; ABS X
+ .byte $04 ; ABS L X
+ .byte $03 ; ABS Y
+ .byte $02 ; PCR
+ .byte $03 ; PCR L
+ .byte $03 ; ABS IND
+ .byte $02 ; DIR IND
+ .byte $02 ; DIR IND L
+ .byte $03 ; ABS INX IND
+ .byte $01 ; STACK
+ .byte $02 ; SR
+ .byte $02 ; SR INX
+ .byte $03 ; MOV
+
+ATRIBL:
+ .byte 11,4  ; BRK 00
+ .byte 35,9  ; ORA D,X 01
+ .byte 88,4  ; COP (REALLY 2) 02
+ .byte 35,22 ; ORA-,X 03
+ .byte 64,4  ; TSB D 04
+ .byte 35,4  ; ORA D 05
+ .byte 3,4   ; ASL D 06
+ .byte 35,19 ; ORA [D] 07
+ .byte 37,21 ; PHP 08
+ .byte 35,1  ; ORA IMM 09
+ .byte 3,5   ; ASL ACC 0A
+ .byte 71,21 ; PHD 0B
+ .byte 64,2  ; TSB ABS 0C
+ .byte 35,2  ; ORA ABS 0D
+ .byte 3,2   ; ASL ABS 0E
+ .byte 35,3  ; ORA ABS L 0F
+ .byte 10,15 ; BPL 10
+ .byte 35,7  ; ORA (D),Y 11
+ .byte 35,18 ; ORA (D) 12
+ .byte 35,23 ; ORA S,Y 13
+ .byte 63,4  ; TRB D 14
+ .byte 35,10 ; ORA D,X 15
+ .byte 3,10  ; ASL D,X 16
+ .byte 35,8  ; ORA (DL),Y 17
+ .byte 14,6  ; CLC 18
+ .byte 35,14 ; ORA ABS,Y 19
+ .byte 25,5  ; NC ACC 1A
+ .byte 77,6  ; TCS 1B
+ .byte 63,2  ; TRB ABS,X 1C
+ .byte 35,12 ; ORA ABS,X 1D
+ .byte 3,12  ; ASL ABS,X 1E
+ .byte 35,13 ; ORA ABSL,X 1F
+ .byte 29,2  ; JSR ABS 20
+ .byte 2,7   ; AND (D, X) 21
+ .byte 29,3  ; JSL ABS L 22
+ .byte 2,22  ; AND SR 23
+ .byte 7,4   ; BIT D 24
+ .byte 2,4   ; AND D 25
+ .byte 40,4  ; ROL D 26
+ .byte 2,19  ; AND (DL) 27
+ .byte 39,6  ; PLP 28
+ .byte 2,1   ; AND IMM 29
+ .byte 40,5  ; ROL ACC 2A
+ .byte 69,21 ; PLD 2B
+ .byte 7,2   ; BIT ABS 2C
+ .byte 2,2   ; AND ABS 2D
+; .byte 40,5  ; ROL A 2E
+ .byte 40,2  ; ROL ABS 2E
+ .byte 2,3   ; AND ABS L 2F
+ .byte 8,15  ; BMI 30
+ .byte 2,11  ; AND D,Y 31
+ .byte 2,18  ; AND (D) 32
+ .byte 2,23  ; AND (SR),Y 33
+ .byte 7,10  ; BIT D,X 34
+ .byte 2,10  ; AND D,X 35
+ .byte 40,10 ; ROL D,X 36
+ .byte 2,8   ; AND (DL),Y 37
+ .byte 45,6  ; SEC 38
+ .byte 25,14 ; AND ABS,Y 39
+ .byte 21,5  ; DEC 3A
+ .byte 78,6  ; TSC 3B
+ .byte 7,12  ; BIT A,X 3C
+ .byte 2,12  ; AND ABS,X 3D
+ .byte 40,12 ; ROL A,X 3E
+ .byte 2,13  ; AND AL,X 3F
+ .byte 42,6  ; RTI 40
+ .byte 24,9  ; EOR (D,X) 41
+ .byte 91,4  ; WDM 42
+ .byte 24,22 ; EOR (D,X) 43
+ .byte 87,24 ; MVP 44
+ .byte 24,4  ; EOR D 45
+ .byte 33,4  ; LSR D 46
+ .byte 24,19 ; EOR (DL) 47
+ .byte 36,6  ; PHA 48
+ .byte 24,1  ; EOR IMM 49
+ .byte 33,5  ; LSR ABS L 4A
+ .byte 72,6  ; PHK 4B
+ .byte 28,2  ; JMP ABS 4C
+ .byte 24,2  ; EOR ABS 4D
+ .byte 33,2  ; LSR ABS 4E
+ .byte 24,5  ; EOR ABS L 4F
+ .byte 12,15 ; BVC 50
+ .byte 24,7  ; EOR (D),Y 51
+ .byte 24,18 ; EOR (D) 52
+ .byte 24,23 ; EOR (SR),Y 53
+ .byte 86,24 ; MVN 54
+ .byte 24,10 ; EOR D,X 55
+ .byte 33,10 ; LSR D,X 56
+ .byte 24,8  ; EOR (DL),Y 57
+ .byte 16,6  ; CLI 58
+ .byte 24,14 ; EOR 59
+ .byte 61,21 ; PHY 5A
+ .byte 75,6  ; TCD 5B
+ .byte 28,3  ; JMP ABSL 5C
+ .byte 24,12 ; EOR ABS,X 5D
+ .byte 33,12 ; LSR ABS,X 5E
+ .byte 24,13 ; EOR ABSL,X 5F
+ .byte 43,6  ; RTS 60
+ .byte 1,9   ; ADC (D, X) 61
+ .byte 67,16 ; PER 62
+ .byte 1,22  ; ADC SR 63
+ .byte 62,4  ; STZ D 64
+ .byte 1,4   ; ADC D 65
+ .byte 41,4  ; ROR D 66
+ .byte 1,19  ; ADC (DL) 67
+ .byte 38,21 ; PLA 68
+ .byte 1,1   ; ADC 69
+ .byte 41,5  ; ROR ABSL 6A
+ .byte 85,6  ; RTL 6B
+ .byte 28,17 ; JMP (A) 6C
+ .byte 1,2   ; ADC ABS 6D
+ .byte 41,2  ; ROR ABS 6E
+ .byte 1,3   ; ADC ABSL 6F
+ .byte 13,15 ; BVS 70
+ .byte 1,8   ; ADC (D),Y 71
+ .byte 1,18  ; ADC (D) 72
+ .byte 1,23  ; ADC (SR),Y 73
+ .byte 62,10 ; STZ D,X 74
+ .byte 1,10  ; ADC D,X 75
+ .byte 41,10 ; ROR D,X 76
+ .byte 1,8   ; ADC (DL),Y 77
+ .byte 47,6  ; SEI 78
+ .byte 1,14  ; ADC ABS,Y 79
+ .byte 59,21 ; PLY 7A
+ .byte 76,6  ; TDC 7B
+ .byte 28,20 ; JMP (A, X) 7C
+ .byte 1,12  ; ADC ABS,X 7D
+ .byte 41,12 ; ROR ABS,X 7E
+ .byte 1,13  ; ADC ABSL,X 7F
+
+ATRIBH:
+ .byte 57,15 ; BRA 80
+ .byte 48,9  ; STA (D, X) 81
+ .byte 83,16 ; BRL 82
+ .byte 48,22 ; STA-,S 83
+ .byte 50,4  ; STY D 84
+ .byte 48,4  ; STA D 85
+ .byte 49,4  ; STX D 86
+ .byte 48,19 ; STA [ D ] 87
+ .byte 23,6  ; DEY 88
+ .byte 7,1   ; BIT IMM 89
+ .byte 54,6  ; TXA 8A
+ .byte 70,21 ; PHB 8B
+ .byte 50,2  ; STY ABS 8C
+ .byte 48,2  ; STA ABS 8D
+ .byte 49,2  ; STX ABS 8E
+ .byte 48,3  ; STA ABS L 8F
+ .byte 4,15  ; BC 90
+ .byte 48,7  ; STA (D),Y 91
+ .byte 48,18 ; STA (D) 92
+ .byte 48,23 ; STA (SR),Y 93
+ .byte 50,10 ; STY D,X 94
+ .byte 48,10 ; STA D,X 95
+ .byte 49,11 ; STX D,Y 96
+ .byte 48,8  ; STA (DL),Y 97
+ .byte 56,6  ; TYA 98
+ .byte 48,14 ; STA ABS,Y 99
+ .byte 55,6  ; TXS D 9A
+ .byte 79,6  ; TXY 9B
+ .byte 62,2  ; STZ ABS 9C
+ .byte 48,12 ; STA ABS,X 9D
+ .byte 62,12 ; STZ ABS,X 9E
+ .byte 48,13 ; STA ABSL,X 9F
+ .byte 32,1  ; LDY IMM A0
+ .byte 30,9  ; LDA (D,X) A1
+ .byte 31,1  ; LDX IMM A2
+ .byte 30,22 ; LDA SR A3
+ .byte 32,4  ; LDY D A4
+ .byte 30,4  ; LDA D A5
+ .byte 31,4  ; LDX D A6
+ .byte 30,19 ; LDA (DL) A7
+ .byte 52,6  ; TAY A8
+ .byte 30,1  ; LDA IMM A9
+ .byte 51,6  ; TAX AA
+ .byte 68,21 ; PLB AB
+ .byte 32,2  ; LDY ABS AC
+ .byte 30,2  ; LDA ABS AD
+ .byte 31,2  ; LDX ABS AE
+ .byte 30,3  ; LDA ABS L AF
+ .byte 5,15  ; BCS B0
+ .byte 30,7  ; LDA (D),Y B1
+ .byte 30,18 ; LDA (D) B2
+ .byte 30,23 ; LDA (SR),Y B3
+ .byte 32,10 ; LDY D,X B4
+ .byte 30,10 ; LDA D,X B5
+ .byte 30,11 ; LDX D,Y B6
+ .byte 30,8  ; LDA (DL),Y B7
+ .byte 17,6  ; CLV B8
+ .byte 30,14 ; LDA ABS,Y B9
+ .byte 53,6  ; TSX BA
+ .byte 80,6  ; TYX BB
+ .byte 32,12 ; LDY ABS,X BC
+ .byte 30,12 ; LDA ABS,X BD
+ .byte 31,14 ; LDX ABS,Y BE
+ .byte 30,13 ; LDA ABSL,X BF
+ .byte 20,1  ; CPY C0
+ .byte 18,9  ; CMP (D,X) C1
+ .byte 73,1  ; REP C2
+ .byte 18,22 ; CMP C3
+ .byte 20,4  ; CPY D C4
+ .byte 18,4  ; CMP D C5
+ .byte 21,4  ; DEC D C6
+ .byte 18,19 ; CMP (DL) C7
+ .byte 27,6  ; INY C8
+ .byte 18,1  ; CMP IMM C9
+ .byte 22,6  ; DEX CA
+ .byte 89,6  ; WAI CB
+ .byte 20,2  ; CPY ABS CC
+ .byte 18,2  ; CMP ABS CD
+ .byte 21,2  ; DEC ABS CE
+ .byte 18,3  ; CMP ABSL CF
+ .byte 9,15  ; BNE D0
+ .byte 18,7  ; CMP (D0,Y D1
+ .byte 18,18 ; CMP (D) D2
+ .byte 18,23 ; CMP D3
+ .byte 66,4  ; PEI D D4
+ .byte 18,10 ; CMP D,X D5
+ .byte 21,10 ; DEC D,X D6
+ .byte 18,8  ; CMP (DL),Y D7
+ .byte 15,6  ; CLD D8
+ .byte 18,14 ; CMP ABS,Y D9
+ .byte 60,21 ; PHX DA
+ .byte 100,6 ; STP DB
+ .byte 28,17 ; JMP (A) DC
+ .byte 18,12 ; CMP ABS,X DD
+ .byte 21,12 ; DEC ABS,X DE
+ .byte 18,13 ; CMP ABSL,X DF
+ .byte 19,1  ; CPX IMM E0
+ .byte 44,9  ; SBC (D,X) E1
+ .byte 74,1  ; SEP IMM E2
+ .byte 44,22 ; SBC SR E3
+ .byte 19,4  ; CPX D E4
+ .byte 44,4  ; SBC D E5
+ .byte 25,4  ; INC D E6
+ .byte 44,19 ; SBD (DL) E7
+ .byte 26,6  ; INX D E8
+ .byte 44,1  ; SBC IMM E9
+ .byte 34,6  ; NOP EA
+ .byte 81,6  ; XBA EB
+ .byte 19,2  ; CPX ABS EC
+ .byte 44,2  ; SBC ABS ED
+ .byte 25,2  ; INC ABS EE
+ .byte 44,3  ; SBC ABSL EF
+ .byte 6,15  ; BEQ F0
+ .byte 44,7  ; SBC (D),Y F1
+ .byte 44,18 ; SBC (D) F2
+ .byte 44,23 ; SBC (SR),Y F3
+ .byte 65,2  ; PEA F4
+ .byte 44,10 ; SBC D,X F5
+ .byte 25,10 ; INC D,X F6
+ .byte 44,8  ; SBC (DL),Y F7
+ .byte 46,6  ; SED F8
+ .byte 44,14 ; SBC ABS,Y F9
+ .byte 58,21 ; PLX FA
+ .byte 82,6  ; XCE FB
+ .byte 29,20 ; JSR (A,X) FC
+ .byte 44,12 ; SBC ABS,X FD
+ .byte 25,12 ; INC ABS,X FE
+ .byte 44,13 ; SBC ABSL,X FF

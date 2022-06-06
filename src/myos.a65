@@ -1,0 +1,6148 @@
+	.IF PLATFORM = 2
+		.include "atarixl.inc"
+	.ENDIF
+	
+		.include "homebrew.inc"
+		.include "fat16.inc"
+		.include "myos.inc"
+
+		.org MYOS
+		.smart
+		.A8
+		.I8
+		
+		jmp myosstart	;xx00
+		jmp readSector	;xx03
+		jmp setSector	;xx06
+		jmp writeSector	;xx09
+		jmp sdInit	;xx0C
+		jmp CIO		;xx0F
+		
+		JMP STARTUP	;xx12
+		JMP PRINT	;xx15
+		JMP PUTHEX	;xx18
+		JMP PRINTSTR	;xx1B
+		JMP INITFAT	;xx1E
+		
+		jmp CIO24	;xx21
+
+		
+myosstart:	ldx #3*12 - 1
+		lda #0
+clrHATABS:	sta HATABS,x
+		dex
+		bpl clrHATABS
+
+		ldx #HATABSROM_end-HATABSROM-1
+copyHATABS:	lda HATABSROM,x
+		sta HATABS,x
+		dex
+		bpl copyHATABS
+
+;		lda #<SSDV
+;		sta SSDVEC
+;		lda #>SSDV
+;		sta SSDVEC+1
+		
+		jsr ICIO
+		jsr SIN
+	
+		lda jrs232v+1
+		sta HATABS+$A
+		lda jrs232v+2
+		sta HATABS+$B
+		
+		ldx #0		;open channel 00 
+		lda #OPEN	;with EDITOR
+		sta ICCOM,x
+		lda #<EDITOR
+		sta ICBAL,x
+		lda #>EDITOR
+		sta ICBAH,x
+		lda #12
+		sta ICBLH,x
+		sta ICAX1,x
+		lda #0
+		sta ICAX2,x
+		sta ICBLL,x
+		jsr CIO
+		
+start1:	
+	.IF PLATFORM <= 1
+		jsr sdInit
+		jsr STARTUP
+		bcs start1
+	.ENDIF
+		rts
+		
+	.IF PLATFORM=99
+		lda #<IRQPROC
+		sta irqvec
+		lda #>IRQPROC
+		sta irqvec+1
+		cli
+		rts
+
+		
+IRQPROC:	pha
+		lda #$03
+		sta crtcol0
+		sta crtirq
+		sec
+IRQ1:		sbc #1
+		bne IRQ1
+		lda #$11
+		sta crtcol0
+		pla
+		rti
+	.ENDIF
+	
+initcrt:
+	.IF PLATFORM = 0
+			
+;		ldx #11
+;initcrt1:	lda crttab,x
+;		sta DISP,x
+;		dex
+;		bpl initcrt1
+
+		rep #M+IX
+		ldx #0
+		txy
+initcrt2:	tya
+		asl
+		and #$FF80
+		sta palette,x
+		tya
+		and #$3F
+		ora palette,x
+		sta palette,x
+
+		iny		
+		inx
+		inx
+		cpx #512
+		bne initcrt2
+		
+		lda #0
+		sta palette
+		lda #$1ff
+		sta palette+$1fe
+		
+		
+		ldx	#0
+initcrt3:
+		lda	rgbtab,x
+		sta	palette,x
+		sta	palette+$10,x
+		inx
+		inx
+		cpx	#$20
+		bne	initcrt3
+		
+		sep	#M
+		ldx	#0
+initcrt4:
+		txa
+		sta	$7FF800,x
+		inx
+		cpx	#$800
+		bne	initcrt4
+		sep 	#IX
+		rts
+		
+rgbtab:
+		.word	0 >> 1			;black
+		.word	$7 >> 1			;red
+		.word	$38 >> 1		;green
+		.word	$7+$38 >> 1		;yellow
+		.word	$1C0 >> 1		;blue
+		.word	$1c0+$7	>> 1		;magenta
+		.word	$1c0+$38 >> 1		;cyan
+		.word	$1ff >> 1		;white
+		.word	$92			;black
+		.word	$7			;red
+		.word	$38			;green
+		.word	$7+$38			;yellow
+		.word	$1C0			;blue
+		.word	$1c0+$7			;magenta
+		.word	$1c0+$38		;cyan
+		.word	$1ff			;white
+		
+
+;crttab:		.byte $49, $00		;colorBorderLo/Hi 
+;		.byte $C0, $00		;colorBackgroundLo	= DISP + 2
+;		.byte $FF, $01		;color00Lo		= DISP + 4
+;		.byte $3F, $01		;color00Lo		= DISP + 4
+;		.byte $00, $FC, $3F	;screenBase	3F:FC00 * 2 = 7F:F800
+;		.byte $04		;control		= DISP + 9
+;		.byte $00, $00		;cursorLo/Hi		= DISP + 10		
+
+	.ENDIF
+	
+	.IF PLATFORM = 1
+		lda #0
+		sta crtcntl
+		
+;		ldx #3
+;		lda #$11
+;initcrt2:	sta crtcol3,x
+;		dex
+;		bpl initcrt2
+		
+		ldx #15
+initcrt1:	stx crtadr
+		lda crtset,x
+		sta crtdata
+		dex
+		bpl initcrt1		
+
+;		jsr jtime
+		
+		ldx #$ff
+		stx crtcol1		;foreground
+		stx crtcol2		;not used
+		
+		ldx #$14		;background
+		stx crtcol0		
+		ldx #$24
+		stx crtcolb		;border
+
+;		jmp jtime
+		
+clrcrt:		stz SCRSTRT		;clear first byte
+		lda #1
+		sta MEMCNTL
+		    
+		rep #M+IX
+		    
+		lda #(NUMROWS*640)-2
+		ldx #SCRSTRT-$8000
+		txy 
+		iny 
+		mvn $0,$0
+		sep #M+IX
+		stz MEMCNTL
+		rts
+	.ENDIF
+		
+;
+;
+;
+SPACE:		pha
+		lda #CSPACE
+SPACE1:		jsr EOUTCH
+		pla
+		rts
+		
+	.IF PLATFORM > 1
+NEWLINE:	pha
+		lda #EOL
+		bne SPACE1
+
+PUTHEX:		PHA
+		TXA
+		PHA
+		TYA
+		PHA
+		
+		TSX
+		LDA $103,X
+		PHA
+		LSR
+		LSR
+		LSR
+		LSR
+		JSR PUTNIB
+		
+		PLA
+		AND #15
+		JSR PUTNIB
+
+		PLA
+		TAY
+		PLA
+		TAX
+		PLA
+		RTS	
+
+PUTNIB:		CMP #10
+		BCC PUTNIB1
+		ADC #6
+PUTNIB1:	ADC #48
+		
+EOUTCH:		PHA
+		TXA
+		PHA
+		TYA
+		PHA
+		
+		TSX
+		LDA $103,x
+		jsr EOUTCALL
+
+		PLA
+		TAY
+		PLA
+		TAX
+		PLA
+		RTS
+		
+EOUTCALL:	TAX
+		LDA #>(EPB-1)
+		PHA
+		LDA #<(EPB-1)
+		PHA
+		TXA
+		RTS
+
+	.ENDIF
+
+;
+;
+;
+
+sdInit:
+	.IF SOFTDISK=1
+		rts
+	.ELSE
+		jsr deselect
+		lda #CLS
+		jsr EOUTCH
+		ldx #12
+		jsr readByteX1
+
+;		jsr jtime
+;
+; CMD0 - Go Idle
+;		
+	.IF PLATFORM = 0
+		lda #150
+		sta SPICNTL
+	.ENDIF	
+		jsr clradr
+		lda #CMD0CHK
+		sta sdchk
+sdInit1:	lda #CMD0
+		jsr cardcmd
+		cmp #R1_IDLE_STATE
+		beq sdInit2
+		bne sdInit
+;
+; try CMD8
+;
+sdInit2:	jsr clradr
+		lda #01
+		sta sdadr+2
+		lda #$aa
+		sta sdadr+3
+		lda #CMD8CHK
+		sta sdchk
+		lda #CMD8
+		jsr cardcmd
+		and #R1_ILLEGAL_COMMAND
+;		cmp #R1_ILLEGAL_COMMAND		
+		bne sdInit3
+		
+		ldx #3
+		jsr readByteX
+		
+;		
+; ACMD41 = CMD55 + CMD41
+;
+sdInit3:	lda #64
+		sta HOLD2
+
+sdInit6:	jsr deselect
+		jsr clradr
+		lda #CMD55	
+		jsr cardcmd
+		
+		lda #$40
+		sta sdadr
+		lda #CMD41
+		jsr cardcmd
+		beq sdInit4		;result not 0, start over
+		lda #CCUP
+		jsr EOUTCH
+		jsr EOUTCH
+;		dec HOLD2
+		bra sdInit6
+;		bne sdInit6
+;		beq sdInit
+	
+sdInit4:	jsr deselect
+		lda #CMD58		;read OCR, ($3A)
+		sta sdcmd
+		jsr cardcmd
+		bne sdInit9
+
+		ldx #3
+		jsr readByteX
+
+;
+; CMD9 - Read CSD
+;		
+sdInit5:	lda #CMD9		;read CSD
+		jsr cardcmd
+		
+		jsr waitdata
+		
+		ldx #15			;read 16 bytes
+		jsr readByteX
+		
+sdInit9:	jsr deselect
+
+	.IF PLATFORM = 0
+		lda #2
+		sta SPICNTL
+	.ENDIF
+		rts
+	.ENDIF
+;
+;muss mit N-Flag=0 verlassen werden!
+;
+setSector:
+	.IF SOFTDISK=1
+		sta SECPTRHI
+		txa
+		sta SECPTRLO
+		rts
+	.ELSE
+		stx SECPTR
+		sta SECPTR+1
+		ldy #0
+		ldx #3
+		sty sdadr+3
+		clc
+setSector1:	lda (SECPTR),y
+		rol
+		sta sdadr-1,x
+		iny
+		dex
+		bne setSector1
+		rts
+	.ENDIF
+;
+;
+;
+printSDadr:	ldx #0
+printSDadr1:	lda sdadr,x
+		jsr jprinthex
+		inx
+		cpx #4
+		bne printSDadr1
+		jmp jspace
+		
+printBuf:	ldx #0
+printBuf1:	lda SECPTR+1
+		jsr jprinthex
+		lda SECPTR
+		jsr jprinthex
+		jmp jspace
+;
+;
+;		
+readSector:	
+	.IF SOFTDISK=1	
+		sta BUFPTRHI
+		txa
+		sta BUFPTRLO
+		lda READWRITE
+		ldy #1
+		rts
+	.ELSE
+		stx SECPTR
+		sta SECPTR+1
+		
+;		jsr jnewline
+;		lda #'R'
+;		jsr jchrout
+;		jsr jspace
+;		jsr printSDadr
+		
+		lda #CMD17
+		jsr cardcmd
+
+		jsr waitdata
+		
+		ldy #0
+		jsr read256
+		inc SECPTR+1
+		jsr read256
+		
+		ldx #1		;2-byte CRC
+		jsr readByteX
+		jsr deselect
+		ldy #0
+		rts
+		
+read256:
+	.IF PLATFORM = 0
+;		lda #$ff
+		sta SPISTAT
+read256a:	lda SPISTAT
+		bne read256a
+	;	nop
+		lda SPIDAT
+	.ENDIF
+	
+	.IF PLATFORM = 1
+		lda SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+	.ENDIF
+		sta (SECPTR),y
+		iny
+		bne read256
+		rts
+	.ENDIF
+;
+;
+;		
+writeSector:
+	.IF SOFTDISK=1
+		sta BUFPTRHI
+		txa
+		sta BUFPTRLO
+		sta READWRITE
+		ldy #1
+		rts
+	.ELSE
+		stx SECPTR
+		sta SECPTR+1
+		
+;		jsr jnewline
+;		lda #'W'
+;		jsr jchrout
+;		jsr jspace
+;		jsr printSDadr
+		
+		lda #CMD24		; write Sector
+		jsr cardcmd
+
+	.IF PLATFORM = 1
+		lda #0
+		sta SPIMOSI		; CS\ and MOSImask=0
+	.ENDIF
+		lda #DATA_START_BLOCK
+		jsr sendbyte
+		
+		ldy #0
+writeSector1:	lda (SECPTR),y
+		jsr sendbyte
+		iny
+		bne writeSector1
+		
+		inc SECPTR+1
+		
+writeSector2:	lda (SECPTR),y
+		jsr sendbyte
+		iny
+		bne writeSector2
+		
+		jsr readbyte		; send two bytes CRC
+		jsr readbyte
+		jsr readbyte		; get data-response token
+		and #DATA_RES_MASK
+		cmp #DATA_RES_ACCEPTED	; "00000101" = 5 ?
+		bne writeerror		; no -> error
+		
+		lda #CMD13		; get Status
+		jsr cardcmd		
+		jsr readbyte
+		bne writeerror
+
+		jsr deselect		; all OK, deselect card
+		clc			; and quit with carry clear
+		rts
+
+writeerror:	jsr deselect		; an error occured
+		sec			; quit with carry set
+		rts
+
+waitready:	jsr readbyte		; read until sdcard
+		cmp #$ff		; sends #$FF
+		bne waitready
+		rts
+
+waitdata:	jsr readbyte
+		and #1
+		bne waitdata
+		rts
+		
+cardcmd:	sta sdcmd
+		sta sddebug
+		cmp #CMD13
+		beq cardcmd3
+		cmp #CMD17
+		beq cardcmd3
+		cmp #CMD24
+		beq cardcmd3
+		lda #0
+		sta sddebug
+		
+		jsr printCMD
+
+cardcmd3:
+	.IF PLATFORM = 0
+		jsr select
+	.ENDIF
+		jsr waitready	;also selects SD card
+
+
+		ldx #0
+	.IF PLATFORM = 1
+		stx SPIMOSI		; CS\ and MOSImask=0
+	.ENDIF
+cardcmd1:	lda sdcmd,x
+		jsr sendbyte
+		inx
+		cpx #6
+		bne cardcmd1
+		
+cardcmd2:	jsr readbyte
+		bmi cardcmd2
+		ldx sddebug
+		beq cardcmd4
+		rts
+cardcmd4:	jsr PUTHEX
+		jmp NEWLINE
+
+printCMD:	lda #'C'
+		jsr EOUTCH
+		lda sdcmd
+		sec
+		sbc #$40
+		jsr PUTHEX
+		jsr SPACE
+		lda #'R'
+		jmp EOUTCH
+
+;
+; read Reg-X number of bytes  
+;	
+readByteX:
+	.IF PLATFORM = 0
+		lda #0
+		sta SPISS
+	.ENDIF
+	
+	.IF PLATFORM = 1
+		lda #1
+		sta SPIMOSI		; CS\ and MOSImask=0
+	.ENDIF
+readByteX1:	jsr readbyte1
+		dex
+		bpl readByteX1
+		rts
+	
+readbyte:
+	.IF PLATFORM = 0
+readbyte1:
+		lda #$FF
+sendbyte:	sta SPIDAT
+readbyte2:	lda SPISTAT
+		bne readbyte2
+		lda SPIDAT
+		rts
+	.ENDIF
+		
+	.IF PLATFORM = 1
+		lda #1
+		sta SPIMOSI		; CS\ and MOSImask=0
+		
+readbyte1:	lda SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		asl
+		ora SPIDATA
+		rts
+	
+sendbyte:	sta SPIDATA
+		asl
+		sta SPIDATA
+		asl
+		sta SPIDATA
+		asl
+		sta SPIDATA
+		asl
+		sta SPIDATA
+		asl
+		sta SPIDATA
+		asl
+		sta SPIDATA
+		asl
+		sta SPIDATA
+		rts
+	.ENDIF
+	
+	.IF PLATFORM = 0
+deselect:	lda #1
+		sta SPISS
+		jmp readbyte1
+		
+select:		lda #0
+		sta SPISS
+		rts
+	.ENDIF
+	
+	.IF PLATFORM = 1
+deselect:	lda #3
+		sta SPIMOSI
+		jmp readbyte1
+		
+select:		lda #1
+		sta SPIMOSI
+		rts
+	.ENDIF
+	
+;debug:		ldx #0
+;debug1:		lda sdcmd,x
+;		jsr jprinthex
+;		jsr jspace
+;		inx
+;		cpx #7
+;		bne debug1
+;		jsr jnewline
+;		rts
+
+clradr:		ldx #3
+		lda #0
+clradr1:	sta sdadr,x
+		dex
+		bpl clradr1
+		rts
+	.ENDIF
+
+;;	IGN - Ignore Character and Perform Keyboard GET-BYT:
+;
+;	ENTRY	JSR	IGN
+;
+;	EXIT
+;		CH = $FF
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+IGN:	;=	;	;entry
+;	LDA	#$FF	;clear code indicator
+;	STA	CH	;key code
+;	JMP	KGB	;perform keyboard GET-BYTE, return
+	
+;;	KGB - Perform Keyboard GET-BYTE
+;
+;	ENTRY	JSR	KGB
+;
+KGB:		lda IRQPS2S	;key available?
+		bne KGB		;Bit 0 = 0?, no =>
+		inc IRQPS2S
+		
+		ldy #SUCCES
+		sty DSTAT
+		lda IRQPS2D
+		sta ATACHR
+		rts
+		
+
+		
+;;	ICIO - Initialize CIO
+;
+;	ENTRY	JSR	ICIO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ICIO:	;=	*		;entry
+
+;	Initialize IOCB's.
+
+	LDX	#0		;index of first IOCB
+
+ICIO1:	LDA	#IOCFRE		;IOCB free indicator
+	STA	ICHID,X		;set IOCB free
+;	LDA	#<(IIN-1)
+;	STA	ICPTL,X		;initialize PUT-BYTE routine address
+;	LDA	#>(IIN-1)
+;	STA	ICPTH,X
+	TXA			;index of current IOCB
+	CLC
+	ADC	#IOCBSZ		;add IOCB size
+	TAX			;index of next IOCB
+	CMP	#MAXIOC		;index of first invalid IOCB
+	BCC	ICIO1		;if not done
+
+	RTS			;return
+;	SPACE	4,10
+;;	IIN - Indicate IOCB Not Open Error
+;
+;	ENTRY	JSR	IIN
+;
+;	EXIT
+;		Y = IOCB Not Open error code
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+IIN:	;=	;	;entry
+	LDY	#NOTOPN	;IOCB not open error
+	RTS		;return
+;	SPACE	4,10
+;;	CIO - Central Input/Output
+;
+;	ENTRY	JSR	CIO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+CIO24:	jsr	CIO
+	rtl
+
+CIO:	;=	*	;entry
+	.IF PLATFORM=0
+	php
+	phd
+	phb
+	sep	#M+IX
+	pea	0	;set direct to zero-page
+	pld		
+	phk		;set program-bank to zero
+	plb
+	.ENDIF
+	
+;	Initialize.
+
+	STA	CIOCHR	;save possible output byte value
+	STX	ICIDNO	;save IOCB index
+
+;	Check IOCB index validity.
+
+	TXA		;IOCB index
+	AND	#$0F	;index modulo 16
+	BNE	CIO1	;if IOCB not multiple of 16, error
+
+	CPX	#MAXIOC	;index of first invalid IOCB
+	BCC	CIO2	;if index within range
+
+;	Indicate Invalid IOCB Index error.
+
+CIO1:	LDY	#BADIOC	;invalid IOCB index error
+	JMP	SSC	;set status and complete operation, return
+
+;	Move part of IOCB to zero page IOCB.
+
+CIO2:	LDY	#0		;offset to first byte of page zero IOCB
+
+CIO3:	LDA	IOCB,X		;byte of IOCB
+	STA	IOCBAS,Y	;byte of zero page IOCB
+	INX
+	INY
+	CPY	#ICSPRZ-IOCBAS	;offset to first undesired byte
+	BCC	CIO3		;if not done
+
+;	Check for provisionally open IOCB.
+
+;	LDA	ICHIDZ	;handler ID
+;	CMP	#$7F	;provisionally open indicator
+;	BNE	PCC	;if not provisionally open, perform:
+	jmp 	PCC
+;	Check for CLOSE command.
+
+;	LDA	ICCOMZ	;command
+;	CMP	#CLOSE
+;	BEQ	XCL	;if CLOSE command
+
+;	Check handler load flag.
+
+;	LDA	HNDLOD
+;	BNE	LHO	;if handler load desired
+
+;	Indicate nonexistent device error.
+
+;	JMP	IND	;indicate nonexistent device error,:
+;	SPACE	4,10
+;;	IND - Indicate Nonexistent Device Error
+;
+;	ENTRY	JSR	IND
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;IND:	;=	*	;entry
+;	LDY	#NONDEV	;nonexistent device error
+
+;IND1:	JMP	SSC	;set status and complete operation,:
+;	SPACE	4,10
+;;	LHO - Load Peripheral Handler for OPEN
+;
+;	ENTRY	JSR	LHO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;LHO:	;=	;	;entry
+;	JSR	PHL	;load and initialize peripheral han:
+;	BMI	IND1	;if error
+
+;	JMP	PCC	;perform CIO command, return
+;	SPACE	4,10
+;;	PCC - Perform CIO Command
+;
+;	ENTRY	JSR	PCC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+PCC:	;=	;	;entry
+
+;	Check command validity.
+
+	LDY	#NVALID		;assume invalid code
+	LDA	ICCOMZ		;command
+	CMP	#OPEN		;first valid command
+	BCC	XOP1		;if command invalid
+
+	TAY			;command
+
+	CPY	#SPECIL		;last valid command
+	BCC	PCC1		;if valid
+
+	LDY	#SPECIL		;substitute SPECIAL command
+
+;	Obtain vector offset.
+
+PCC1:	STY	ICCOMT		;save command
+	LDA	TCVO-3,Y	;vector offset for command
+	BEQ	XOP		;if OPEN command, process
+
+;	Perform command.
+
+	CMP	#2
+	BEQ	XCL		;if CLOSE command, process
+
+	CMP	#8
+	BCS	XSS		;if STATUS or SPECIAL command, process
+
+	CMP	#4
+	BEQ	XGT		;if GET command, process
+
+	JMP	XPT		;process PUT command, process
+;	SPACE	4,10
+;;	XOP - Execute OPEN Command
+;
+;	ENTRY	JSR	XOP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+XOP:	;=	;	;entry
+
+;	Check IOCB free.
+
+	LDA	ICHIDZ	;handler ID
+	CMP	#IOCFRE	;IOCB free indicator
+	BEQ	XOP2	;if IOCB free
+
+;	Process error.
+
+	LDY	#PRVOPN	;IOCB previously open error
+
+XOP1:	JMP	SSC	;set status and complete operation, return
+
+;	Check handler load.
+
+XOP2:	;LDA	HNDLOD
+	;BNE	PPO	;if user wants unconditional poll
+
+;	Search handler table.
+
+	JSR	SHT	;search handler table
+	bcc	XOP3
+	
+;	BCS	PPO	;if not found, poll
+
+	ldy	#NONDEV
+	JMP	SSC
+	
+;	Initialize status.
+
+XOP3:	LDA	#0
+	STA	DVSTAT	;clear status
+	STA	DVSTAT+1
+
+;	Initialize IOCB.
+
+;	JMP	IIO	;initialize IOCB for OPEN, return
+;	SPACE	4,10
+;;	IIO - Initialize IOCB for OPEN
+;
+;	ENTRY	JSR	IIO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+IIO:	;=	;	;entry
+
+;	Compute handler entry point.
+
+	JSR	CEP	;compute handler entry point
+	BCS	XOP1	;if error
+
+;	Execute command.
+
+	JSR	EHC	;execute handler command
+
+;	Set PUT-BYTE routine address in IOCB.
+
+;	LDA	#PUTCHR
+;	STA	ICCOMT	;command
+;	JSR	CEP	;compute handler entry point
+;	LDA	ICSPRZ	;PUT-BYTE routine address
+;	STA	ICPTLZ	;IOCB PUT-BYTE routine address
+;	LDA	ICSPRZ+1
+;	STA	ICPTHZ
+	
+	JMP	CCO	;complete CIO operation, return
+;	SPACE	4,10
+;;	PPO - Peripheral for OPEN
+;
+;	ENTRY	JSR	PPO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;PPO:	;=	*	;entry
+;	JSR	PHO	;poll
+;	JMP	SSC	;set status and complete operation,:
+;	SPACE	4,10
+;;	XCL - Execute CLOSE Command
+;
+;	ENTRY	JSR	XCL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+XCL:	;=	;		;entry
+
+;	Initialize.
+
+	LDY	#SUCCES		;assume success
+	STY	ICSTAZ		;status
+	JSR	CEP		;compute handler entry point
+	BCS	XCL1		;if error
+
+;	Execute command.
+
+
+	JSR	EHC		;execute handler command
+
+;	Close IOCB.
+
+XCL1:	LDA	#IOCFRE		;IOCB free indicator
+	STA	ICHIDZ		;indicate IOCB free
+;	LDA	#>(IIN-1)
+;	STA	ICPTHZ		;reset initial PUT-BYTE routine address
+;	LDA	#<(IIN-1)
+;	STA	ICPTLZ
+	JMP	CCO		;complete CIO operation, return
+;	SPACE	4,10
+;;	XSS - Execute STATUS and SPECIAL Commands
+;
+;	???word about implicit OPEN and CLOSE.
+;
+;	ENTRY	JSR	XSS
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+XSS:	;=	*	;entry
+
+;	Check IOCB free.
+
+	LDA	ICHIDZ	;handler ID
+	CMP	#IOCFRE
+	BNE	XSS1	;if IOCB not free
+
+;	Open IOCB.
+
+	JSR	SHT	;search handler table
+	BCS	XOP1	;if error
+
+;	Execute command.
+
+XSS1:	JSR	CEP	;compute handler entry point
+	JSR	EHC	;execute handler command
+
+;	Restore handler ID, in case IOCB implicitly opened.
+
+	LDX	ICIDNO	;IOCB index
+	LDA	ICHID,X	;original handler ID
+	STA	ICHIDZ	;restore zero page handler ID
+	JMP	CCO	;complete CIO operation, return
+;	SPACE	4,10
+;;	XGT - Execute GET Command
+;
+;	ENTRY	JSR	XGT
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+XGT:	;=	;	;entry
+
+;	Check GET validity.
+
+	LDA	ICCOMZ	;command
+	AND	ICAX1Z	;???
+	BNE	XGT2	;if GET command valid
+
+;	Process error.
+
+	LDY	#WRONLY	;IOCB opened for write only error
+
+XGT1:	JMP	SSC	;set status and complete operation, return
+
+;	Compute and check handler entry point.
+
+XGT2:	JSR	CEP	;compute handler entry point
+	BCS	XGT1	;if error
+
+;	Check buffer length.
+
+	LDA	ICBLLZ		;buffer length
+	ORA	ICBLLZ+1
+	.IF PLATFORM=0
+	ora	ICBLLZ+2
+	.ENDIF
+	BNE	XGT3		;if buffer length non-zero
+
+;	Get byte.
+
+;	lda	#'G'
+;	jsr	jchrout
+	
+	JSR	EHC	;execute handler command
+	STA	CIOCHR	;data
+	JMP	CCO	;complete CIO operation, return
+
+;	Fill buffer.    	
+
+XGT3:	JSR	EHC		;execute handler command
+	STA	CIOCHR		;data
+	BMI	XGT7		;if error, end transfer
+
+	.IF PLATFORM=0
+	sta	[ICBALZ]
+	.ELSE
+	LDY	#0
+	STA	(ICBALZ),Y	;byte of buffer
+	.ENDIF
+
+	JSR	IBP		;increment buffer pointer
+	LDA	ICCOMZ		;command
+	AND	#$02
+	BNE	XGT4		;if GET RECORD command
+
+;	Check for EOL.
+
+	LDA	CIOCHR	;data
+	CMP	#EOL
+	BNE	XGT4	;if not EOL
+
+;	Process EOL.
+
+	JSR	DBL	;decrement buffer length
+	JMP	XGT7	;clean up
+
+;	Check buffer full.
+
+XGT4:	JSR	DBL	;decrement buffer length
+	BNE	XGT3	;if buffer not full, continue
+
+;	Check command.
+
+	LDA	ICCOMZ	;command
+	AND	#$02
+	BNE	XGT7	;if GET CHARACTER command, clean up
+
+;	Process GET RECORD.
+
+XGT5:	JSR	EHC	;execute handler command
+	STA	CIOCHR	;data
+	BMI	XGT6	;if error
+
+;	Check for EOL.
+
+	LDA	CIOCHR	;data
+	CMP	#EOL
+	BNE	XGT5	;if not EOL, continue
+
+;	Process end of record.
+
+	LDA	#TRNRCD	;truncated record error
+	STA	ICSTAZ	;status
+
+;	Process error.
+
+XGT6:	JSR	DBP		;decrement buffer pointer
+
+	LDA	#EOL
+	.IF PLATFORM=0
+	sta	[ICBALZ]
+	.ELSE
+	LDY	#0
+	STA	(ICBALZ),Y	;set EOL in buffer
+	.ENDIF
+	
+	JSR	IBP		;increment buffer pointer
+
+;	Clean up.
+
+XGT7:	JSR	SFL	;set final buffer length
+	JMP	CCO	;complete CIO operation, return
+;	SPACE	4,10
+;;	XPT - Execute PUT Command
+;
+;	ENTRY	JSR	XPT
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+XPT:	;=	;	;entry
+
+;	Check PUT validity.
+
+	LDA	ICCOMZ	;command
+	AND	ICAX1Z
+	BNE	XPT2	;if PUT command valid
+
+;	Process error.
+
+	LDY	#RDONLY	;IOCB opened for read only error
+
+XPT1:	JMP	SSC	;set status and complete operation, return
+
+;	Compute and check handler entry point.
+
+XPT2:	JSR	CEP	;compute handler entry point
+	BCS	XPT1	;if error
+
+;	Check buffer length.
+
+	LDA	ICBLLZ	;buffer length
+	ORA	ICBLLZ+1
+	.IF PLATFORM=0
+	ora	ICBLLZ+2
+	.ENDIF
+	BNE	XPT3	;if buffer length non-zero
+
+;	Put byte.
+
+	LDA	CIOCHR	;data
+	INC	ICBLLZ	;set buffer length to 1
+	BNE	XPT4	;transfer one byte
+
+;	Transfer data from buffer to handler.
+
+XPT3:	.IF PLATFORM=0
+	lda	[ICBALZ]
+	.ELSE
+	LDY	#0
+	LDA	(ICBALZ),Y	;byte from buffer
+	.ENDIF
+	STA	CIOCHR		;data
+
+XPT4:	JSR	EHC		;execute handler command
+	PHP			;save status
+	JSR	IBP		;increment buffer pointer
+	JSR	DBL		;decrement buffer length
+	PLP			;status
+	BMI	XPT6		;if error
+
+;	Check command.
+
+	LDA	ICCOMZ	;command
+	AND	#$02
+	BNE	XPT5	;if PUT RECORD command
+
+;	Check for EOL.
+
+	LDA	CIOCHR	;data
+	CMP	#EOL
+	BEQ	XPT6	;if EOL, clean up
+
+;	Check for buffer empty.
+
+XPT5:	LDA	ICBLLZ		;buffer length
+	ORA	ICBLLZ+1
+	.IF PLATFORM=0
+	ora	ICBLLZ+2
+	.ENDIF
+	BNE	XPT3		;if buffer not empty, continue
+
+;	Check command.
+
+	LDA	ICCOMZ	;command
+	AND	#$02
+	BNE	XPT6	;if PUT CHARACTER command
+
+;	Write EOL.
+
+	LDA	#EOL
+	JSR	EHC	;execute handler command
+
+;	Clean up.
+
+XPT6:	JSR	SFL	;set final buffer length
+	JMP	CCO	;complete CIO operation, return
+;	SPACE	4,10
+;;	SSC - Set Status and Complete Operation
+;
+;	ENTRY	JSR	SSC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SSC:	;=	;	;entry
+	STY	ICSTAZ	;status
+;	JMP	CCO	;complete CIO operation, return
+;	SPACE	4,10
+
+
+;;	CCO - Complete CIO Operation
+;
+;	ENTRY	JSR	CCO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CCO:	;=	;		;entry
+
+;	Initialize.
+
+	LDY	ICIDNO		;IOCB index
+
+;	Restore buffer pointer.
+
+	LDA	ICBAL,Y
+	STA	ICBALZ		;restore buffer pointer
+	LDA	ICBAH,Y
+	STA	ICBAHZ
+	.IF PLATFORM=0
+	lda	ICBAB,Y
+	sta	ICBABZ
+	.ENDIF
+	
+;	Move part of zero page IOCB to IOCB.
+
+	LDX	#0		;first byte of zero page IOCB
+;	STX	HNDLOD
+
+CCO1:	LDA	IOCBAS,X	;byte of zero page IOCB
+	STA	IOCB,Y		;byte of IOCB
+	INX
+	INY
+	CPX	#ICSPRZ-IOCBAS	;offset to first undesired byte
+	BCC	CCO1		;if not done
+
+;	Restore A, X and Y.
+
+	
+	.IF PLATFORM=0
+	
+	lda	4,s		;manipulate N-Bit of status byte
+	ldy	ICSTAZ		;load status
+	bmi	CCO2		;is negativ? yes ->
+	and	#$7F		;clear N-Bit
+	bra	CCO3
+CCO2:	ora	#$80		;set N-Bit
+CCO3:	sta	4,s		;store (to be pulled by last pld)
+	lda	CIOCHR
+	ldx	ICIDNO
+	plb
+	pld
+	plp
+	
+	.ELSE
+	
+	LDA	CIOCHR		;data
+	LDX	ICIDNO		;IOCB index
+	LDY	ICSTAZ		;status
+
+	.ENDIF
+	
+	RTS			;return
+;	SPACE	4,10
+;;	CEP - Compute Handler Entry Point
+;
+;	ENTRY	JSR	CEP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CEP:	;=	;		;entry
+
+;	Check handler ID validity.
+
+;	lda 	ICHIDZ
+	
+	LDY	ICHIDZ		;handler ID
+	CPY	#MAXDEV+1	;first invalid ID
+	BCC	CEP1		;if handler ID within range
+
+;	Process error.
+
+	LDY	#NOTOPN		;IOCB not open error
+	BCS	CEP2		;return
+
+;	Compute entry point.
+
+CEP1:
+	LDA	HATABS+1,Y	;low address
+	STA	ICSPRZ
+	LDA	HATABS+2,Y	;high address
+	STA	ICSPRZ+1
+	LDY	ICCOMT		;command
+	LDA	TCVO-3,Y	;vector offset for command
+	TAY
+	LDA	(ICSPRZ),Y	;low vector address
+	TAX			;low vector address
+	INY
+	LDA	(ICSPRZ),Y	;high vector address
+	STA	ICSPRZ+1	;set high address
+	STX	ICSPRZ		;set low address
+	CLC			;indicate success
+
+;	Exit.
+
+CEP2:	RTS			;return
+;	SPACE	4,10
+;;	DBL - Decrement Buffer Length
+;
+;	ENTRY	JSR	DBL
+;
+;	EXIT
+;		Z set if buffer length = 0
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DBL:	;=	;		;entry
+	LDA	ICBLLZ		;low buffer length
+	BNE	DBL1		;if low buffer length non-zero
+	
+	.IF PLATFORM=0
+	lda	ICBLLZ+1
+	bne	DBL2
+	dec	ICBLLZ+2
+	.ENDIF
+
+DBL2:	DEC	ICBLLZ+1	;decrement high buffer length
+
+DBL1:	DEC	ICBLLZ		;decrement low buffer length
+	LDA	ICBLLZ
+	ORA	ICBLLZ+1	;indicate buffer length status
+	.IF PLATFORM=0
+	ora	ICBLLZ+2
+	.ENDIF
+	RTS			;return
+;	SPACE	4,10
+;;	DBP - Decrement Buffer Pointer
+;
+;	ENTRY	JSR	DBP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DBP:	;=	;		;entry
+	LDA	ICBALZ		;low buffer address
+	BNE	DBP1		;if low buffer address non-zero
+
+	.IF PLATFORM=0
+	lda	ICBALZ+1
+	bne	DBP2
+	dec	ICBALZ+2
+	.ENDIF
+	
+DBP2:	DEC	ICBALZ+1	;decrement high buffer address
+
+DBP1:	DEC	ICBALZ		;decrement low buffer address
+	RTS			;return
+;	SPACE	4,10
+;;	IBP - Increment Buffer Pointer
+;
+;	ENTRY	JSR	IBP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+IBP:	;=	;		;entry
+	INC	ICBALZ		;increment low buffer address
+	BNE	IBP1		;if low buffer address non-zero
+
+	INC	ICBALZ+1	;increment high buffer address
+	
+	.IF PLATFORM=0
+	bne	IBP1
+	inc	ICBALZ+2
+	.ENDIF
+	
+IBP1:	RTS			;return
+;	SPACE	4,10
+;;	SFL - Set Final Buffer Length
+;
+;	ENTRY	JSR	SFL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SFL:	;=	;		;entry
+	LDX	ICIDNO		;IOCB index
+	SEC
+	LDA	ICBLL,X		;initial length
+	SBC	ICBLLZ		;subtract byte count
+	STA	ICBLLZ		;update length
+	LDA	ICBLH,X
+	SBC	ICBLHZ
+	STA	ICBLHZ
+	.IF PLATFORM=0
+	LDA	ICBLB,X
+	SBC	ICBLBZ
+	STA	ICBLBZ
+	.ENDIF
+	RTS			;return
+;	SPACE	4,10
+;;	EHC - Execute Handler Command
+;
+;	ENTRY	JSR	EHC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+EHC:	;=	;		;entry
+	LDY	#FNCNOT		;assume function not defined error
+	JSR	IDH		;invoke device handler
+	STY	ICSTAZ		;status
+	CPY	#0		;set N accordingly
+	RTS			;return
+;	SPACE	4,10
+;;	IDH - Invoke Device Handler
+;
+;	ENTRY	JSR	IDH
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+IDH:	;=	;		;entry
+	TAX			;save A
+	LDA	ICSPRZ+1	;high vector
+;	jsr	jprinthex
+	PHA			;put high vector on stack
+	LDA	ICSPRZ		;low vector
+;	jsr	jprinthex
+	PHA			;put low vector on stack
+	TXA			;restore A
+	LDX	ICIDNO		;IOCB index
+	RTS			;invoke handler (address on stack)
+;	SPACE	4,10
+;;	SHT - Search Handler Table
+;
+;	ENTRY	JSR	SHT
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SHT:	;=	;	;entry
+
+;	Set device number.
+
+	SEC
+	LDY	#1
+	.IF PLATFORM=0
+	lda	[ICBALZ],y
+	.ELSE
+	LDA	(ICBALZ),Y	;device number
+	.ENDIF
+
+	SBC	#'1'
+	BMI	SHT1		;if number less than  "1"
+
+	CMP	#'9'-'1'+1
+	BCC	SHT2		;if number in range "1" to "9"
+
+SHT1:	LDA	#0		;substitute device number "1"
+
+SHT2:	STA	ICDNOZ		;device number (0 through 8)
+	INC	ICDNOZ		;adjust number to range 1 t:
+
+;	Find device handler.
+	.IF PLATFORM=0
+	lda	[ICBALZ]
+	.ELSE
+	LDY	#0		;offset to device code
+	LDA	(ICBALZ),Y	;device code
+	.ENDIF
+	
+	beq	FDH2		;if device code null, error
+	cmp	#'a'		; < 'a'?
+	bcc	FDH		; search
+	cmp	#'z'+1		; >= 'Z'+1?
+	bcs	FDH		; search
+	sbc	#32-1		; carry clear!
+	
+;	JMP	FDH		;find device handler, return
+;	SPACE	4,10
+;;	FDH - Find Device Handler
+;
+;	ENTRY	JSR	FDH
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+FDH:	;=	;		;entry
+
+;	Check device code.
+
+;	BEQ	FDH2		;if device code null
+
+;	Search handler table for device.
+
+	LDY	#MAXDEV		;offset to last possible entry
+
+FDH1:	CMP	HATABS,Y	;device code from table
+	BEQ	FDH3		;if device found
+
+	DEY
+	DEY
+	DEY
+	BPL	FDH1		;if not done
+
+;	Process device not found.
+
+FDH2:	LDY	#NONDEV		;nonexistent device error
+	SEC			;indicate error
+	RTS			;return
+
+;	Set handler ID.
+
+FDH3:	TYA			;offset to device code in table
+	STA	ICHIDZ		;set handler ID
+	CLC			;indicate no error
+	RTS			;return
+;	SPACE	4,10
+;;	TCVO - Table of Command Vector Offsets
+;
+;	Entry n is the vector offset for command n+3.
+
+
+TCVO:	.byte	0	;3 - open
+	.byte	4	;4
+	.byte	4	;5 - get record
+	.byte	4	;6
+	.byte	4	;7 - get byte(s)
+	.byte	6	;8
+	.byte	6	;9 - put record
+	.byte	6	;10
+	.byte	6	;11 - put byte(s)
+	.byte	2	;12 - close
+	.byte	8	;13 - status
+	.byte	10	;14 - special
+
+	
+	;;	SIN - Initialize Screen
+;
+;	ENTRY	JSR	SIN
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83	
+SIN:	;=	;		;entry
+
+;	LDA	#$FF		;clear code indicator
+;	STA	CH		;key code
+;
+;	LDA	RAMSIZ		;size of RAM
+;	STA	RAMTOP		;RAM size
+;
+;	LDA	#$40		;CAPS lock indicator
+;	STA	SHFLOK		;shift/control lock flags
+;
+;	LDA	#<TCKD	;table of character key def:
+;	STA	KEYDEF		;key definition table addre:
+;	LDA	#>TCKD
+;	STA	KEYDEF+1
+;
+;	LDA	#<TFKD	;table of function key defi:
+;	STA	FKDEF		;function key definition ta:
+;	LDA	#>TFKD
+;	STA	FKDEF+1
+	lda 	#0
+	sta 	skipone
+	sta 	extended
+	sta	ALTACT
+
+	lda 	#(>SCRSTRT + 8) & 255
+	sta 	RAMTOP
+				;init to value <> 0
+	lda	#1
+	sta	SHFLOK		;shift off (lowercase)
+;	sta	STRGFLG		;strgoff
+	sta	CLSFLG		;clearscreen pressed
+	
+;	sta	BRKKEY
+
+;	lda 	#$E8
+;	sta 	ScrBase
+		
+	LDA	#LEDGE
+	STA 	LMARGN		;left margin
+	LDA 	#CCHARLINE-1
+	STA 	RMARGN		;right margin		
+
+	RTS			;return
+	
+;;	SOP - Perform Screen OPEN
+;
+;	ENTRY	JSR	SOP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;SOP:	;=	;	;entry
+
+;	Check mode.
+
+;	LDA	ICAX2Z
+;	AND	#$0F
+;	BNE	COC	;if not mode 0, complete OPEN comma:
+
+;	Process mode 0.
+
+;	JMP	EOP	;perform editor OPEN, return
+	
+;;	EOP - Perform Editor OPEN
+;
+;	ENTRY	JSR	EOP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+SOP:
+EOP:	;=	;	;entry
+
+	jsr	initcrt
+;	jsr	clrcrt
+
+	LDA	ICAX1Z
+	AND	#$0F
+	STA	ICAX1Z
+;	LDA	#0
+;	JMP	COC	;complete OPEN command, return
+	
+;;	COC - Complete OPEN Command
+;
+;	ENTRY	JSR	COC
+;		A = mode
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+COC:	;=	;	;entry
+
+;	Check mode.
+;	STA	DINDEX	;save mode
+;	CMP	#16
+;	BCC	COC1	;if mode within range
+
+;	Process invalid mode
+
+;	LDA	#BADMOD
+;	JMP	COC17
+
+;	Initialize for OPEN.
+
+COC1:
+;	LDA	#>DCSORG	;>domestic character se:
+;	STA	CHBAS		;character set base
+;	LDA	#>ICSORG	;>international charact:
+;	STA	CHSALT		;alternate character set ba:
+;	LDA	#2
+;	STA	CHACT
+;	STA	SDMCTL		;turn off DMA
+	LDA	#SUCCES
+	STA	DSTAT		;clear status
+;	LDA	#$C0		;enable IRQ
+;	ORA	POKMSK
+;	STA	POKMSK
+;	STA	IRQEN
+
+;	Set DLI status.
+
+;	LDA	#$40		;disable DLI
+;	STA	NMIEN
+;	BIT	FINE
+;	BPL	COC2		;if not fine scrolling (VBL:
+
+;	LDA	#<FDL
+;	STA	VDSLST		;DLI vector
+;	LDA	#>FDL
+;	STA	VDSLST+1
+;	LDA	#$C0
+
+COC2:
+;	STA	NMIEN
+
+;	Clear control.
+
+	LDA	#0
+	STA	TINDEX		;clear text index (must alw:
+	STA	ADRESS
+	STA	SWPFLG
+	STA	CRSINH
+
+;	Set initial tab stops.
+
+	LDY	#14		;offset to last byte of bit:
+	LDA	#$01		;tab stop every 8 character:
+
+COC3:	STA	TABMAP,Y	;set tab stop
+	DEY
+	BPL	COC3		;if not done
+
+;	Load initialize color register shadows.
+
+;	LDX	#4		;offset to last color regis:
+
+;COC4:	LDA	TDSC,X		;default screen color
+;	STA	COLOR0,X	;set color register shadow
+;	DEX
+;	BPL	COC4		;if not done
+
+;	Set up.
+
+;	LDY	RAMTOP		;(high) RAM size
+;	DEY			;decrement (high) RAM size
+;	STY	TXTMSC+1
+;	LDA	#<($0000-160)	;low RAM size = 160
+;	STA	TXTMSC
+;	LDX	DINDEX		;mode
+;	LDA	TAGM,X		;convert to ANTIC code
+;	STA	HOLD1		;ANTIC code
+
+	sec
+	LDA	RAMTOP		;(high) RAM size
+	sbc	#8		;reserve 8 pages = 2KB
+	STA	ADRESS+1
+
+;	Allocate memory.
+
+;	LDY	TSMA,X		;number of 40-byte blocks t:
+;
+;COC5:	LDA	#40		;40 bytes
+;	JSR	DBS		;perform double byte subtra:
+;	DEY
+;	BNE	COC5		;if not done
+
+;	lda	RAMTOP
+;	lda	ADRESS+1
+;	jsr	jprinthex
+;	lda	ADRESS
+;	jsr	jprinthex
+	
+;	Clear GTIA modes.
+
+;	LDA	GPRIOR
+;	AND	#$3F		;clear GTIA modes
+;	STA	OPNTMP+1
+;	lda	#0
+;	sta	OPNTMP+1
+;	jmp COC7
+	
+	LDY	#0
+
+;	Determine mode.
+
+;	CPX	#8
+;	BCC	COC7		;if mode < 8
+
+;	CPX	#15
+;	BEQ	COC6		;if mode 15
+
+;	CPX	#12
+;	BCS	COC7		;if mode >= 12
+
+;	Process mode 9, 10 and 11.
+
+;	TXA			;mode
+;	ROR	A
+;	ROR	A
+;	ROR	A
+;	AND	#$C0		;extract 2 low bits (in 2 h:
+;	ORA	OPNTMP+1
+;	TAY
+
+;	Establish line boundary at X000.
+
+;COC6:	LDA	#16		;subtract 16 for page bound:
+;	JSR	DBS		;perform double byte subtra:
+
+;	Check for mode 11.
+
+;	CPX	#11
+;	BNE	COC7		;if mode 11
+
+;	Set GTIA luminance.
+
+;	LDA	#6		;GTIA luminance value
+;	STA	COLOR4		;background color
+
+;	Set new priority.
+
+COC7:
+;	STY	GPRIOR		;new priority
+
+;	Set memory scan counter.
+
+	LDA	ADRESS		;memory scan counter
+	STA	SAVMSC		;save memory scan counter
+	LDA	ADRESS+1
+	STA	SAVMSC+1
+	jmp	COC18
+
+	
+;	Wait for VBLANK.
+
+COC8:	
+;	jmp 	COC18
+
+;	LDA	VCOUNT
+;	CMP	#$7A
+;	BNE	COC8		;if VBLANK has not occured
+
+;	Put display list under RAM.
+
+;	JSR	DSD		;perform double byte single:
+;	LDA	TDLV,X		;display list vulnerability
+;	BEQ	COC9		;if not vulnerable
+;
+;	LDA	#$FF
+;	STA	ADRESS
+;	DEC	ADRESS+1	;drop down 1 page
+;
+;COC9:	JSR	DDD		;perform double byte double:
+;	LDA	ADRESS		;end of display list
+;	STA	SAVADR		;save address
+;	LDA	ADRESS+1
+;	STA	SAVADR+1
+;
+;;	Set up.
+;
+;	LDA	#$41		;ANTIC wait for VBLANK and :
+;	JSR	SDI		;store data indirect
+;	STX	OPNTMP
+;	LDA	#24
+;	STA	BOTSCR	;screen bottom
+;
+;;	Check for modes 9 ,10 and 11.
+;
+;	LDA	DINDEX		;mode
+;	CMP	#12
+;	BCS	COC10		;if mode >= 12, mixed mode :
+;
+;	CMP	#9
+;	BCS	COC12		;if mode >= 9, mixed mode n:
+;
+;;	Check for mixed mode.
+;
+;COC10:	LDA	ICAX1Z
+;	AND	#MXDMOD
+;	BEQ	COC12		;if not mixed mode
+;
+;;	Process mixed mode.
+;
+;	LDA	#4
+;	STA	BOTSCR	;screen bottom
+;	LDX	#2
+;	LDA	FINE
+;	BEQ	COC11		;if not fine scrolling
+;
+;	JSR	SSE		;set scrolling display list:
+;
+;COC11:	LDA	#$02
+;	JSR	SDF		;store data indirect for fi:
+;	DEX
+;	BPL	COC11		;if not done
+;
+;;	Reload MSC for text.
+;
+;	LDY	RAMTOP		;(high) RAM size
+;	DEY			;decrement (high) RAM size
+;	TYA
+;	JSR	SDI		;store data indirect
+;	LDA	#<($0000-160)	;low RAM size = 160
+;	JSR	SDI		;store data indirect
+;	LDA	#$42		;fine scrolling
+;	JSR	SDF		;store data indirect
+;	CLC
+;	LDA	#MXDMOD
+;	ADC	OPNTMP
+;	TAY
+;	LDX	TDLE,Y
+;	BNE	COC13
+;
+;;	Check mode.
+;
+;COC12:	LDY	OPNTMP
+;	LDX	TDLE,Y		;number of display list ent:
+;	LDA	DINDEX		;mode
+;	BNE	COC13		;if not mode 0
+;
+;;	Check for fine scrolling.
+;
+;;	LDA	FINE		;fine scrolling flag
+;;	BEQ	COC13		;if not fine scrolling
+;
+;;	Process fine scrolling.
+;
+;	JSR	SSE		;set scrolling display list:
+;	LDA	#$22
+;	STA	HOLD1
+;
+;;	Continue.
+;
+;COC13:	LDA	HOLD1
+;	JSR	SDI		;store data indirect
+;	DEX
+;	BNE	COC13		;if not done
+;
+;;	Determine mode.
+;
+;	LDA	DINDEX		;mode
+;	CMP	#8
+;	BCC	COC16		;if mode < 8
+;
+;	CMP	#15
+;	BEQ	COC14		;if mode 15
+;
+;	CMP	#12
+;	BCS	COC16		;if mode >= 12
+;
+;;	Process modes 8, 9, 10, 11 and 15.
+;
+;COC14:	LDX	#93		;remaining number of DLE's
+;	LDA	RAMTOP		;(high) RAM size
+;	SEC
+;	SBC	#>$1000	;subtract 4K
+;	JSR	SDI		;store data indirect
+;	LDA	#<$0000
+;	JSR	SDI		;store data indirect
+;	LDA	HOLD1		;ANTIC MSC code
+;	ORA	#$40
+;	JSR	SDI		;store data indirect
+;
+;COC15:	LDA	HOLD1		;remaining DLE's
+;	JSR	SDI		;store data indirect
+;	DEX
+;	BNE	COC15		;if DLE's remain
+;
+;;	Complete display list with LMS.
+;
+;COC16:	LDA	SAVMSC+1	;>saved memory scan cou:
+;	JSR	SDI		;store data indirect
+;	LDA	SAVMSC		;low saved memory scan coun:
+;	JSR	SDI		;store data indirect
+;	LDA	HOLD1
+;	ORA	#$40
+;	JSR	SDI		;store data indirect
+;	LDA	#$70		;8 blank lines
+;	JSR	SDI		;store data indirect
+;	LDA	#$70		;8 blank lines
+;	JSR	SDI		;store data indirect
+;	LDA	ADRESS		;display list address
+;	STA	SDLSTL		;save display list address
+;	LDA	ADRESS+1
+;	STA	SDLSTL+1
+;	LDA	#$70		;8 blank lines
+;	JSR	SDI		;store data indirect
+;	LDA	ADRESS		;display list address
+;	STA	MEMTOP		;update top of memory
+;	LDA	ADRESS+1
+;	STA	MEMTOP+1
+;	LDY	#1		;offset
+;	LDA	SDLSTL		;saved display list address
+;	STA	(SAVADR),Y
+;	INY
+;	LDA	SDLSTL+1
+;	STA	(SAVADR),Y
+;
+;;	Check status.
+;
+;	LDA	DSTAT		;status
+;	BPL	COC18		;if no error
+;
+;;	Process error.
+;
+;COC17:	STA	DERRF		;screen OPEN error flag
+;	JSR	EOP		;perform editor OPEN
+;	LDA	DERRF		;restore status
+;	LDY	#0		;no screen OPEN error indic:
+;	STY	DERRF		;screen OPEN error flag
+;	TAY			;status
+;	RTS			;return
+
+;	Check clear inhibit.
+
+COC18:	lda	#NUMROWS
+	sta	BOTSCR
+	
+	LDA	ICAX1Z
+	AND	#$20		;extract clear inhibit bit
+	BNE	COC19		;if clear inhibited
+
+;	Clear screen.
+
+	JSR	CSC		;clear screen
+	STA	TXTROW		;set cursor at top row
+	LDA	LMARGN		;left margin
+	STA	TXTCOL		;set cursor at left margin
+
+;	Exit.
+
+COC19:
+;	LDA	#$22		;turn on DMA control
+;	ORA	SDMCTL
+;	STA	SDMCTL
+	JMP	SEC_		;set exit conditions, return
+	
+;;	SGB - Perform Screen GET-BYTE
+;
+;	ENTRY	JSR	SGB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SGB:	;:	;=	;	;entry
+	JSR	CCR	;check cursor range
+	JSR	GDC	;get data under cursor
+	JSR	CIA	;convert internal character to ATAS:
+	JSR	SZA	;set zero data and advance cursor
+	JMP	SST	;perform screen STATUS, return
+	
+;;	GDC - Get Data Under Cursor
+;
+;	ENTRY	JSR	GDC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+GDC:	;=	;	;entry
+	JSR	CCA	;convert cursor row/column to addre:
+	.IF PLATFORM=0
+	lda	[ADRESS],Y
+	.ELSE
+	LDA	(ADRESS),Y
+	.ENDIF
+	
+;	AND	DMASK
+
+;GDC1:	LSR	SHFAMT	;shift data down to low bits
+;	BCS	GDC2	;if done
+
+;	LSR	A
+;	BPL	GDC1	;continue shifting
+
+GDC2:	STA	CHAR
+;	CMP	#0	;restore flags
+F1A3:	RTS		;return
+	
+;;	SPB - Perform Screen PUT-BYTE
+;
+;	ENTRY	JSR	SPB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SPB:	;=	;	;entry
+	STA	ATACHR
+
+;	JSR	ROD	;restore old data under cursor
+
+	CMP	#CLS
+	BNE	SPB1	;if not clear screen
+
+	JSR	CSC	;clear screen
+	JMP	SEC_	;set exit contitions, return
+
+SPB1:	JSR	CCR	;check cursor range
+;	JMP	CEL	;check EOL, return
+	
+;;	CEL - Check End of Line
+;
+;	ENTRY	JSR	CEL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CEL:	;=	;	;entry
+	LDA	ATACHR
+	CMP	#EOL
+	BNE	CEL1	;if not EOL
+
+	JSR	RWS	;return with scrolling
+	JMP	SEC_	;set exit conditions, return
+
+CEL1:	JSR	PLO	;plot point
+	JSR	SEA	;set EOL data and advance cursor
+	JMP	SEC_	;set exit conditions, return
+
+;;	PLO - Plot Point
+;
+;	ENTRY	JSR	PLO
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+PLO:	;=	*		;entry
+
+;	Wait for start/stop flag clear.
+
+PLO0:	LDA	SSFLAG		;start/stop flag
+	BNE	PLO0		;if start/stop flag non-zer:
+
+;	Save cursor row/column.
+
+	LDX	#2		;offset to last byte
+
+PLO1:	LDA	ROWCRS,X	;byte of cursor row/column
+	STA	OLDROW,X	;save byte of cursor row/co:
+	DEX
+	BPL	PLO1		;if not done
+
+;	Convert ATASCII character to internal.
+
+	LDA	ATACHR		;character
+	clc
+;	TAY			;character
+;	ROL	A
+;	ROL	A
+;	ROL	A
+;	ROL	A
+;	AND	#3
+;	TAX			;index into TAIC
+;	TYA			;character
+;	AND	#$9F		;strip off column address
+;	ORA	TAIC,X		;or in new column address
+;	JMP	SPQ		;display, return
+	
+;;	SPQ - Display
+;
+;	ENTRY	JSR	SPQ
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SPQ:	;=	*		;entry
+
+;	Set CHAR.
+;	RS if carry set, print cursor
+	.IF PLATFORM = 1
+	php
+	.ENDIF
+	
+	.IF PLATFORM = 0
+	bcc	SPQ2
+	lda	ADRESS		;use hardware cursor
+	sta	cursorLo
+	lda	ADRESS+1
+	and	#%00000111	;restrict to 2KB
+	sta	cursorHi
+	rts
+	.ENDIF
+	
+SPQ2:	STA	CHAR		;character
+
+;	Convert cursor row/column to address.
+
+	JSR	CCA		;convert cursor row/column :
+
+;	Shift up to proper position.
+
+	LDA	CHAR		;character
+
+;PQ1:	LSR	SHFAMT
+;	BCS	SPQ2		;if done
+
+;	ASL	A
+;	JMP	SPQ1		;continue shifting
+
+;	Update data.
+
+;SPQ2:	AND	DMASK
+;	STA	TMPCHR		;save shifted data
+;	LDA	DMASK		;display mask
+;	EOR	#$FF		;complement display mask
+;	AND	(ADRESS),Y	;mask off old data
+;	ORA	TMPCHR		;or in new data
+	.IF PLATFORM=0
+	sta	[ADRESS],Y
+	.ELSE
+	STA	(ADRESS),Y	;update data
+	.ENDIF
+	
+;	plp
+	
+	.IF PLATFORM = 1
+
+;	php
+;	cmp	#$FF
+;	beq	PRTCRS		;print cursor
+PRTCH0:
+	asl
+	sta	FRMADR
+	lda	#0
+	rol
+	asl	FRMADR
+	rol
+	asl	FRMADR
+	rol
+	adc 	#(>charset)		;carry is clear at this point
+	sta	FRMADR+1
+	plp
+	
+PRTCH2:	ldy 	#7
+PRTCH1:	lda 	(FRMADR),y
+	bcc	PRTCH3
+	eor	#$FF
+PRTCH3:	sta	(CHRPTR),y
+	dey
+	bpl	PRTCH1
+	.ENDIF
+	
+	rts
+
+	.IF PLATFORM = 1
+PRTCHR:	php
+	jmp	PRTCH0
+	.ENDIF
+
+;PRTCRS:	ldy 	#7
+;PRTCR1:	lda 	(CHRPTR),y
+;	eor	#$FF
+;	sta	(CHRPTR),y
+;	dey
+;	bpl	PRTCR1
+;	rts
+
+;;	SEC - Set Exit Conditions
+;
+;	ENTRY	JSR	SEC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SEC_:	;=	;	;entry
+	JSR	GDC	;get data under cursor
+	STA	OLDCHR
+;	LDX	DINDEX	;mode
+;	BNE	SST	;if graphics, no cursor
+
+;	LDX	CRSINH	;cursor inhibit flag
+;	BNE	SST	;if cursor inhibited
+
+;	EOR	#$80	;complement most significant bit
+;	lda	#'_'
+	sec
+	JSR	SPQ		;display
+;	JMP	SST	;perform screen status, return
+	
+;;	SST - Perform Screen STATUS
+;
+;	ENTRY	JSR	SST
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SST:	;=	;	;entry
+	LDY	DSTAT	;status
+	JMP	SST1	;continue
+;	SUBTTL	'$F223 Patch'
+	
+;	FIX	$F223
+	
+;;	F223 - $F223 Patch
+;
+;	For compatibility with OS Revision B, perform power-up display.
+
+
+PPD:	;=	;	;entry
+	JMP	SES	;select and execute self-test
+;	SUBTTL	'Keyboard, Editor and Screen Handler, Part 3'
+	
+;	Continue.
+
+SES:	RTS
+
+SST1:	LDA	#SUCCES	;indicate success
+	STA	DSTAT	;status
+	LDA	ATACHR	;data
+;	JMP	ESP	;return
+	
+;;	ESP - Perform Editor SPECIAL
+;
+;	ESP does nothing.
+;
+;	ENTRY	JSR	ESP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ESP:	;=	;	;entry
+	RTS		;return
+	
+;;	ECL - Perform Editor CLOSE
+;
+;	ENTRY	JSR	ECL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ECL:	;=	;	;entry
+
+	jmp	SST
+;	Check for fine scrolling.
+
+;	BIT	FINE	;fine scrolling flag
+;	BPL	SST	;if not fine scrolling, perform STA:
+
+;	Process fine scrolling.
+
+;	LDA	#$40
+;	STA	NMIEN		;disable DLI
+;	LDA	#0		;clear fine scrolling flag
+;	STA	FINE
+;	LDA	#<RIR		;return from interrupt rout:
+;	STA	VDSLST		;restore initial DLI vector:
+;	LDA	#>RIR
+;	STA	VDSLST+1
+;	JMP	EOP		;perform editor OPEN, retur:
+	
+;;	RIR - Return from Interrupt
+;
+;	ENTRY	JMP	RIR
+;
+;	EXIT
+;		Exits via RTI
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+RIR:	;=	;	;entry
+	RTI		;return
+	
+;;	EGB - Perform Editor GET-BYTE
+;
+;	ENTRY	JSR	EGB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+EGB:	;=	*	;entry
+
+;	Initialize.
+
+	JSR	SWA_	;swap
+	JSR	CRE	;check cursor range for editor
+	LDA	BUFCNT	;buffer count
+;	jsr	jprinthex
+;	lda	BUFCNT
+	BNE	EGB4	;if something in the buffer
+
+;	Get line.
+
+	LDA	ROWCRS		;cursor row
+	STA	BUFSTR		;buffer start pointer
+	LDA	COLCRS		;low cursor column
+	STA	BUFSTR+1	;high buffer start pointer
+
+EGB1:	JSR	KGB	;perform keyboard GET-BYTE
+	STY	DSTAT	;status
+	LDA	ATACHR	;ATASCII character
+	CMP	#EOL
+	BEQ	EGB3	;if EOL
+	
+	JSR	PCH	;process character
+	JSR	SWA_	;swap
+	LDA	LOGCOL	;logical column
+	CMP	#113	;column near column 120
+	BNE	EGB2	; if not near column 120, no beep
+
+	JSR	BEL	;beep
+
+EGB2:	JMP	EGB1	;process new character
+
+;	Process EOL.
+
+EGB3:	JSR	ROD		;restore old data under cur:
+	JSR	CBC		;compute buffer count
+	LDA	BUFSTR		;buffer start pointer
+	STA	ROWCRS		;cursor row
+	LDA	BUFSTR+1	;high buffer start pointer
+	STA	COLCRS		;low cursor column
+
+;	Check buffer count.
+
+EGB4:	LDA	BUFCNT	;buffer count
+	BEQ	EGB6	;if buffer count zero
+
+;	Decrement and check buffer count.
+
+EGB5:	DEC	BUFCNT	;decrement buffer count
+	BEQ	EGB6	;if buffer count zero
+
+;	Check status.
+
+	LDA	DSTAT	;status
+	BMI	EGB5	;if error, continue decrementing.
+
+;	Perform GET-BYTE.
+
+	JSR	SGB	;perform screen GET-BYTE
+	STA	ATACHR	;ATASCII character
+	JMP	SWA_	;swap, return
+
+;	Exit.
+
+EGB6:	JSR	RWS	;return with scrolling
+	LDA	#EOL
+	STA	ATACHR	;ATASCII character
+	JSR	SEC_	;set exit conditions
+	STY	DSTAT	;status
+	JMP	SWA_	;swap, return
+	
+;;	IRA - Invoke Routine Pointed to by ADRESS
+;
+;	ENTRY	JSR	IRA
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+IRA:	;=	;		;entry
+	JMP	(ADRESS)	;execute, return
+	
+;;	EPB - Perform Editor PUT-BYTE
+;
+;	ENTRY	JSR	EPB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+EPB:	;=	;	;entry
+	STA	ATACHR	;ATASCII character
+	JSR	SWA_	;swap
+	JSR	CRE	;check cursor range for editor
+	LDA	#0
+	STA	SUPERF	;clear super function flag
+
+;	JMP	PCH	;process character, return
+	
+;;	PCH - Process Character
+;
+;	PCH displays the character or processes control cha:
+;	super functions (shifted function keys).
+;
+;	ENTRY	JSR	PCH
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+PCH:	;=	;	;entry
+	JSR	ROD	;restore old data under cursor
+	JSR	CCC	;check for control character
+	BEQ	PCH2	;if control character
+
+;	Display character.
+
+PCH1:	ASL	ESCFLG	;escape flag
+	JSR	CEL	;check EOL
+	JMP	SWA_	;swap, return
+
+;	Process control character.
+
+PCH2:	LDA	DSPFLG	;display flag
+	ORA	ESCFLG	;escape flag
+	BNE	PCH1	;if display or escape, display chara:
+
+;	Continue.
+
+	ASL	ESCFLG
+	INX
+
+;	Check for super function.
+
+	LDA	SUPERF
+	BEQ	PCH3		;if not super function
+
+;	Adjust for super function.
+
+	TXA
+	CLC
+	ADC	#TSFR-TCCR-3
+	TAX			;adjusted offset
+
+;	Process control character or super function.
+
+PCH3:	LDA	TCCR,X		;low routine address
+	STA	ADRESS
+	LDA	TCCR+1,X	;high routine address
+	STA	ADRESS+1
+	JSR	IRA		;invoke routine pointed to :
+	JSR	SEC_		;set exit conditions
+	JMP	SWA_		;swap, return
+	
+
+;KGB:	;=	;	;entry
+;
+;;	Initialize.
+;
+;KGB1:	LDA	#0
+;	STA	SUPERF	;clear super function flag
+;
+;;	Check for special edit read mode.
+;
+;	LDA	ICAX1Z
+;	LSR	A
+;	BCS	KGB11	;if special edit read mode
+;
+;;	Check for BREAK abort.
+;
+;	LDA	#BRKABT	;assume BREAK abort
+;	LDX	BRKKEY	;BREAK key flag
+;	BEQ	KGB10	;if BREAK abort
+;
+;;	Check for character.
+;
+;	LDA	CH	;key code
+;	CMP	#$FF	;clear code indicator
+;	BEQ	KGB1	;if no character
+;
+;;	Process character.
+;
+;	STA	HOLDCH	;save character
+;	LDX	#$FF	;clear code indicator
+;	STX	CH	;key code
+;
+;;	Sound key click if desired.
+;
+;	LDX	NOCLIK	;click inhibit flag
+;	BNE	KGB2	;if click inhibited
+;
+;	JSR	SKC	;sound key click
+;
+;;	Set offset to key definition.
+;
+;KGB2:	TAY		;save character
+;
+;;	Check for CTRL and SHIFT together.
+;
+;	CPY	#$C0
+;	BCS	IGN	;if CTRL and SHIFT together, ignore
+;
+;;	Convert to ATASCII character.
+;
+;	LDA	(KEYDEF),Y	;ATASCII character
+;
+;;	Set ATASCII character.
+;
+;KGB3:	STA	ATACHR	;ATASCII character
+;	TAX
+;	BMI	KGB4	;if special key
+;
+;	JMP	KGB17	;process shift/control lock
+;
+;;	Check for null character.
+;
+;KGB4:	CMP	#$80
+;	BEQ	IGN	;if null, ignore
+;
+;;	Check for inverse video key.
+;
+;	CMP	#$81
+;	BNE	KGB5	;if not inverse video key
+;
+;;	Process inverse video key.
+;
+;	LDA	INVFLG
+;	EOR	#$80
+;	STA	INVFLG
+;	BCS	IGN	;ignore
+;
+;;	Check for CAPS key.
+;
+;KGB5:	CMP	#$82
+;	BNE	KGB6	;if not CAPS key
+;
+;;	Process CAPS key.
+;
+;	LDA	SHFLOK	;shift/control lock flags
+;	BEQ	KGB7	;if no lock, process CAPS lock
+;
+;	LDA	#$00	;no lock indicator
+;	STA	SHFLOK	;shoft/control lock flags
+;	BEQ	IGN	;ignore
+;
+;;	Check for SHIFT-CAPS key.
+;
+;KGB6:	CMP	#$83
+;	BNE	KGB8	;if not SHIFT-CAPS
+;
+;;	Process SHIFT-CAPS key.
+;
+;KGB7:	LDA	#$40	;CAPS lock indicator
+;	STA	SHFLOK	;shift/control lock flags
+;	BNE	IGN	;ignore
+;
+;;	Check for CTRL-CAPS key.
+;
+;KGB8:	CMP	#$84
+;	BNE	KGB9	;if not CTRL-CAPS
+;
+;;	Process CTRL-CAPS key.
+;
+;	LDA	#$80	;control lock indicator
+;	STA	SHFLOK	;shift/control lock flags
+;	JMP	IGN	;ignore
+;
+;;	Check for CTRL-3 key.
+;
+;KGB9:	CMP	#$85
+;	BNE	KGB12	;if not CTRL-3 key.
+;
+;;	Process CTRL-3 key.
+;
+;	LDA	#EOFERR
+;
+;;	Set status and BREAK key flag.
+;
+;KGB10:	STA	DSTAT	;status
+;	STA	BRKKEY	;BREAK key flag
+;
+;;	Set EOL character.
+;
+;KGB11:	LDA	#EOL
+;	JMP	KGB19	;set ATASCII character
+;
+;;	Check for CTRL-F3 key.
+;
+;KGB12:	CMP	#$89
+;	BNE	KGB14	;if not CTRL-F3 key
+;
+;;	Process CTRL-F3 key.
+;
+;	LDA	NOCLIK	;toggle keyclick status
+;	EOR	#$FF
+;	STA	NOCLIK
+;	BNE	KGB13	;if click inhibited
+;
+;	JSR	SKC	;sound key click
+;
+;KGB13:	JMP	IGN	;ignore
+;
+;;	Check for function key.
+;
+;KGB14:	CMP	#$8E
+;	BCS	KGB16	;if code >= $8E, not a function key
+;
+;	CMP	#$8A
+;	BCC	KGB13	;if code < $8A, not a function key,:
+;
+;;	Process function key.
+;
+;	SBC	#$8A		;convert $8A - $bD to 0 - 3
+;	ASL	HOLDCH		;saved character
+;	BPL	KGB15		;if no SHIFT
+;
+;	ORA	#$04		;convert 0 - 3 to 4 - 7
+;
+;KGB15:	TAY			;offset to function key def:
+;	LDA	(FKDEF),Y	;function key
+;	JMP	KGB3		;set ATASCII character
+;
+;;	Check for super function.
+;
+;KGB16:	CMP	#$92
+;	BCS	KGB17	;if code >= $92, process shift/cont:
+;
+;	CMP	#$8E
+;	BCC	KGB13	;if code < $8E, not super function,:
+;
+;;	Process super function.
+;
+;	SBC	#$8E-$1C	;convert $8E - $91 to $1C -:
+;	INC	SUPERF		;set super function flag
+;	BNE	KGB19		;set ATASCII character
+;
+;;	Process shift/control lock.
+;
+;KGB17:	LDA	HOLDCH	;saved character
+;	CMP	#$40
+;	BCS	KGB18	;if not lower case
+;
+;	LDA	ATACHR	;ATASCII character
+;	CMP	#'a'
+;	BCC	KGB18	;if < "a", do not process
+;
+;	CMP	#'z'+1
+;	BCS	KGB18	;if > "z", do not process
+;
+;	LDA	SHFLOK	;shift/control lock flags
+;	BEQ	KGB18	;if no lock
+;
+;	ORA	HOLDCH	;modify character
+;	JMP	KGB2	;reprocess character
+;
+;;	Invert character, if necessary.
+;
+;KGB18:	JSR	CCC	;check for control character
+;	BEQ	KGB20	;if control character, do not inver:
+;
+;	LDA	ATACHR	;ATASCII character
+;	EOR	INVFLG	;invert character
+;
+;;	Set ATASCII character.
+;
+;KGB19:	STA	ATACHR	;ATASCII character
+;;	Exit
+;
+;KGB20:	JMP	SST	;perform screen status, return
+	
+;;	ESC - Escape
+;
+;	ENTRY	JSR	ESC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ESC_:	;=	;	;entry
+	LDA	#$80	;indicate escape detected
+	STA	ESCFLG	;escape flag
+	RTS		;return
+	
+;;	CUP - Move Cursor Up
+;
+;	ENTRY	JSR	CUP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CUP:	;=	;	;entry
+	DEC	ROWCRS	;decrement cursor row
+	BPL	CUP2	;if row positive
+
+	LDX	BOTSCR	;screen bottom
+	DEX		;screen bottom - 1
+
+CUP1:	STX	ROWCRS	;update cursor row
+
+CUP2:	JMP	SBS	;set buffer start and logical colum:
+	
+;;	CDN - Move Cursor Down
+;
+;	ENTRY	JSR	CDN
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CDN:	;=	;	;entry
+	INC	ROWCRS	;increment cursor row
+	LDA	ROWCRS	;cursor row
+	CMP	BOTSCR	;screen bottom
+	BCC	CUP2	;if at bottom, set buffer start, re:
+
+	LDX	#0
+	BEQ	CUP1	;update cursor row, return
+	
+;;	CLF - Move Cursor Left
+;
+;	ENTRY	JSR	CLF
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CLF:	;=	;	;entry
+	DEC	COLCRS	;decrement low cursor column
+	LDA	COLCRS	;low cursor column
+	BMI	CRM	;if negative, move cursor to margin:
+
+	CMP	LMARGN	;left margin
+	BCS	SCC1	;if at left margin, set logical col:
+
+;	JMP	CRM	;move cursor to right margin, retur:
+	
+;;	CRM - Move Cursor to Right Margin
+;
+;	ENTRY	JSR	CRM
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CRM:	;=	*	;entry
+	LDA	RMARGN	;right margin
+;	JMP	SCC	;set cursor column, return
+	
+;;	SCC - Set Cursor Column
+;
+;	ENTRY	JSR	SCC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SCC:	;=	;	;entry
+	STA	COLCRS	;set low cursor column
+
+SCC1:	JMP	SLC	;set logical column, return
+	
+;;	CRT - Move Cursor Right
+;
+;	ENTRY	JSR	CRT
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CRT:	;=	;	;entry
+	INC	COLCRS	;increment low cursor column
+	LDA	COLCRS	;low cursor column
+	CMP	RMARGN	;right margin
+	BCC	SCC1	;if before right margin, process, r:
+
+	BEQ	SCC1	;if at right margin
+
+;	JMP	CLM	;move cursor to left margin, return
+	
+;;	CLM - Move Cursor to Left Margin
+;
+;	ENTRY	JSR	CLM
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CLM:	;=	;	;entry
+	LDA	LMARGN	;left margin
+	JMP	SCC	;set cursor column, return
+	
+;;	CSC - Clear Screen
+;
+;	ENTRY	JSR	CSC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CSC:	;=	;	;entry
+
+;	Set memory scan counter address.
+
+	.IF PLATFORM = 1
+	jsr	clrcrt
+	.ENDIF
+	
+	JSR	SMS	;set memory scan counter ad:
+
+;	Clear address.
+
+	LDY	ADRESS
+	LDA	#0
+;	STA	ADRESS
+
+CSC1:	.IF PLATFORM=0
+	sta	[ADRESS],y
+	.ELSE
+	STA	(ADRESS),Y
+	.ENDIF
+	
+	INY
+	BNE	CSC1		;if not done with page
+
+	INC	ADRESS+1
+	LDX	ADRESS+1
+	CPX	RAMTOP		;(high) RAM size
+	BNE	CSC1		;if not done
+
+;	Clean up logical line bit map
+
+;	LDY	#0		;offset to first byte of bi:
+	LDA	#$FF
+
+CSC2:	STA	LOGMAP,Y	;byte of logical line bit m:
+	INY
+	CPY	#4		;4 bytes
+	BCC	CSC2		;if not done
+
+;	Exit.
+
+;	JMP	CHM		;move cursor home, return
+	
+;;	CHM - Move Cursor Home
+;
+;	ENTRY	JSR	CHM
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CHM:	;=	;		;entry
+	JSR	SCL		;set cursor at left edge
+	STA	LOGCOL		;logical column
+	STA	BUFSTR+1	;high buffer start
+	LDA	#0
+	STA	ROWCRS		;cursor row
+	STA	COLCRS+1	;high cursor column
+	STA	BUFSTR		;low buffer start pointer
+	RTS			;return
+	
+;;	BSP - Backspace
+;
+;	ENTRY	JSR	BSP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BSP:	;=	;	;entry
+	LDA	LOGCOL	;logical column
+	CMP	LMARGN	;left margin
+	BEQ	BSP3	;if at left margin
+
+	LDA	COLCRS	;low cursor column
+	CMP	LMARGN	;left margin
+	BNE	BSP1	;if not atleft margin
+
+	JSR	DWQ	;see if line should be deleted
+
+BSP1:	JSR	CLF	;move cursor left
+	LDA	COLCRS	;low cursor column
+	CMP	RMARGN	;right margin
+	BNE	BSP2	;if not at right margin
+
+	LDA	ROWCRS	;cursor low
+	BEQ	BSP2	;if row zero
+
+	JSR	CUP	;move cursor up
+
+BSP2:	LDA	#' '
+	STA	ATACHR	;ATASCII character
+	JSR	PLO	;plot point
+
+BSP3:	JMP	SLC	;set logical column, return
+	
+;;	TAB - Tab
+;
+;	ENTRY	JSR	TAB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+TAB:	;=	*	;entry
+
+TAB1:	JSR	CRT	;move cursor right
+	LDA	COLCRS	;low cursor column
+	CMP	LMARGN	;left margin
+	BNE	TAB2	;if not at left margin
+
+	JSR	RET	;return
+	JSR	BLG	;get bit from logical line bit map
+	BCS	TAB3	;if end of logical line
+
+;	Check for tab stop.
+
+TAB2:	LDA	LOGCOL	;logical column
+	JSR	BMG	;set bit from bit map
+	BCC	TAB1	;if not tab stop, keep looking
+
+;	Set logical lolumn
+
+TAB3:	JMP	SLC	;set logical column, return
+	
+;;	STB - Set Tab
+;
+;	ENTRY	JSR	STB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+STB:	;=	;	;entry
+	LDA	LOGCOL	;logical column
+	JMP	BMS	;set bit in bit map, retrun
+	
+;;	CTB - Clear Tab
+;
+;	ENTRY	JSR	CTB
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CTB:	;=	;	;entry
+	LDA	LOGCOL	;logical column
+	JMP	BMC	;clear bit in bit map, return
+	
+;;	ICH - Insert Character
+;
+;	ENTRY	JSR	ICH
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ICH:	;=	*	;entry
+	JSR	SRC	;save row and column
+	JSR	GDC	;get data under cursor
+	STA	INSDAT
+	LDA	#0
+	STA	SCRFLG
+
+ICH1:	clc
+	JSR	SPQ	;store data
+	LDA	LOGCOL	;logical column
+	PHA		;save logical column
+	JSR	ACC	;advance cursor column
+	PLA		;saved logical column
+	CMP	LOGCOL	;logical column	
+	BCS	ICH2	;if saved logical column >= logical:
+
+	LDA	INSDAT
+	PHA
+	JSR	GDC	;get data under cursor
+	STA	INSDAT
+	PLA
+	JMP	ICH1	;continue
+
+;	Exit.
+
+ICH2:	JSR	RRC	;restore row and column
+
+ICH3:	DEC	SCRFLG
+	BMI	ICH4	;if scroll occured
+
+	DEC	ROWCRS	;decrement cursor row
+	BNE	ICH3	;continue
+
+ICH4:	JMP	SLC	;set logical column, return
+	
+;;	DCH - Delete Character
+;
+;	ENTRY	JSR	DCH
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DCH:	;=	*		;entry
+
+;	Save row and column.
+
+	JSR	SRC		;save row and column
+;	dec	DEVICNO
+;	lda	#'*'
+;	jsr	jchrout
+;	inc	DEVICNO
+	
+;	Get data to the right of cursor.
+
+DCH1:	JSR	CCA		;convert cursor row/column to addre:
+	LDA	ADRESS	
+	STA	SAVADR		;save address
+	LDA	ADRESS+1	
+	STA	SAVADR+1
+	.IF PLATFORM=0
+	LDA	ADRESS+2	
+	STA	SAVADR+2	
+	.ENDIF
+	LDA	LOGCOL		;logical column
+	PHA			;save lgical column
+	JSR	SZA		;set zero data and advance cursor
+	PLA			;saved logical column
+	CMP	LOGCOL		;logical column
+	BCS	DCH2		;if saved logical column >= logical
+
+	LDA	ROWCRS		;cursor row
+	CMP	BOTSCR		;screen bottom
+	BCS	DCH2		;if row off screem, exit
+
+	JSR	GDC		;get data under cursor
+	LDY	#0
+	.IF PLATFORM=0
+	sta	[SAVADR],Y
+	.ELSE
+	STA	(SAVADR),Y	;put data in previous posit:
+	.ENDIF
+	
+	.IF PLATFORM = 1
+	jsr	DCH3	
+	jmp	DCH1
+	.ENDIF
+	
+	BEQ	DCH1		;continue
+
+DCH2:	LDY	#0
+	TYA
+;	STA	(SAVADR),Y	;clear last position
+	.IF PLATFORM=0
+	sta	[SAVADR],Y
+	.ELSE
+	STA	(SAVADR),Y	;put data in previous posit:
+	.ENDIF
+	
+	.IF PLATFORM = 1
+	jsr	DCH3
+	.ENDIF 
+	
+	JSR	DQQ		;try to delete a line
+	JSR	RRC		;restore row and column
+	JMP	SLC		;set logical column, return
+
+	.IF PLATFORM = 1
+DCH3:	tay
+	lda	SAVADR
+	asl
+	sta	CHRPTR
+	
+	lda	SAVADR+1	
+	and	#%00000111
+	rol
+	asl	CHRPTR
+	rol
+	asl	CHRPTR
+	rol
+	adc	#>SCRSTRT
+	sta	CHRPTR+1
+	
+	tya
+	clc
+	jmp	PRTCHR
+	.ENDIF 
+
+;;	ILN - Insert Line
+;
+;	ENTRY	JSR	ILN
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ILN:	;=	;	;entry
+	SEC
+;	JMP	ILN1
+	
+;;	ILN1 - Insert Line
+;
+;	ENTRY	JSR	ILN1
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ILN1:	;=	;	;entry
+	JSR	ELL	;extend logical line
+	LDA	LMARGN	;left margin
+	STA	COLCRS	;low cursor column
+	JSR	CCA	;convert cursor row/column to addre:
+	JSR	MLN	;move line
+	JSR	CLN	;clear current line
+	JMP	SLC	;set logical column, return
+	
+;;	DLN - Delete Line
+;
+;	ENTRY	JSR	DLN
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DLN:	;=	;	;entry
+	JSR	SLC	;set logical column
+	LDY	HOLD1
+	STY	ROWCRS	;cursor row
+;	JMP	DLN1
+	
+;;	DLN1 - Delete Line
+;
+;	ENTRY	JSR	DLN1
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DLN1:	;=	;		;entry
+
+DLN0:	LDY	ROWCRS		;cursor row
+
+DLN2:	TYA
+	SEC
+	JSR	BLG2		;get next bit
+	PHP
+	TYA
+	CLC
+	ADC	#8*(LOGMAP-TABMAP)	;add offset for log:
+	PLP
+	JSR	BMP		;put bit in bit map
+	INY
+	CPY	#NUMROWS
+	BNE	DLN2		;if not done
+
+	LDA	LOGMAP+2
+	ORA	#1		;set least significant bit
+	STA	LOGMAP+2	;update logical line bit ma:
+	LDA	#0		;delete line of data
+	STA	COLCRS		;low cursor column
+	JSR	CCA		;convert cursor row/column :
+	
+	JSR	SSD		;scroll screen for delete
+
+;	Check for new logical line.
+
+	JSR	BLG		;get bit from logical line :
+	BCC	DLN0		;if not new logical line
+
+;	Move cursor to left margin.
+
+	JMP	CLM		;move cursor to left margin:
+	
+;;	BEL - Sound Bell
+;
+;	ENTRY	JSR	BEL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BEL:	;=	;	;entry
+	LDY	#$20
+
+BEL1:	JSR	SKC	;sound key click
+	DEY
+	BPL	BEL1	;if not done
+
+	RTS		;return
+	
+;;	CBT - Move Cursor to Bottom
+;
+;	ENTRY	JSR	CBT
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CBT:	;=	;	;entry
+	JSR	CHM	;move cursor home
+	JMP	CUP	;move cursor up, return
+	
+;;	DDD - Perform Double Byte Double Decrement
+;
+;	ENTRY	JSR	DDD
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DDD:	;=	;	;entry
+	LDA	#2	;indicate subtracting 2
+	BNE	DBS	;perform double byte subtract, retu:
+	
+;;	SDF - Store Data Indirect for Fine Scrolling
+;
+;	ENTRY	JSR	SDF
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;SDF:	;=	;	;entry
+;	jmp	SDI
+	
+;	LDY	FINE
+;	BEQ	SDI	;if not fine scrolling
+
+;	ORA	#$20	;enable vertical scroll
+;	JMP	SDI	;store data indirect, return
+	
+;;	SDI - Store Data Indirect
+;
+;	ENTRY	JSR	SDI
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;SDI:	;=	;	;entry
+
+;	Check current status.
+
+;	LDY	DSTAT	;status
+;	BMI	DBS3	;if error, return
+
+;	Store data.
+
+;	LDY	#0
+;	STA	(ADRESS),Y
+
+;	Decrement.
+
+;	JMP	DSD	;perform double byte single decreme:
+	
+;;	DSD - Perform Double Byte Single Decrement
+;
+;	ENTRY	JSR	DSD
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DSD:	;=	;	;entry
+	LDA	#1	;indicate subtracting 1
+;	JMP	DBS	;perform double byte subtract, retu:
+	
+;;	DBS - Perform Double Byte Subtract
+;
+;	ENTRY	JSR	DBS
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DBS:	;=	;	;entry
+
+;	Initialize.
+
+	STA	SUBTMP
+
+;	Check current status.
+
+	LDA	DSTAT		;status
+	BMI	DBS3		;if error
+
+;	Subtract.
+
+	LDA	ADRESS
+	SEC
+	SBC	SUBTMP
+	STA	ADRESS
+	BCS	DBS1		;if no borrow
+
+	DEC	ADRESS+1	;adjust high byte
+
+;	Check for overwriting APPMHI.
+
+DBS1:
+;	LDA	APPMHI+1
+;	CMP	ADRESS+1
+;	BCC	DBS3		;if not overwriting APPMHI
+
+;	BNE	DBS2		;if overwriting APPMHI, err:
+
+;	LDA	APPMHI
+;	CMP	ADRESS
+;	BCC	DBS3		;if not overwriting APPMHI
+
+;	Process error.
+
+;DBS2:	LDA	#SCRMEM		;indicate insufficient memo:
+;	STA	DSTAT		;status
+
+;	Exit.
+
+DBS3:	RTS		;return
+	
+;;	SSE - Set Scrolling Display List Entry
+;
+;	Store extra line in display list for fine scrolling:
+;
+;	ENTRY	JSR	SSE
+;
+;	MODS
+;		H. Stewart	06/01/82
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+;SSE:	;=	;	;entry
+;	LDA	#$02
+;	JSR	SDI	;store data indirect
+;	LDA	#$A2	;DLI on last visible line
+;	JSR	SDI	;store data indirect
+;	DEX
+;	RTS		;return
+	
+;;	CCA - Convert Cursor Row/Column to Address
+;
+;	ENTRY	JSR	CCA
+;
+;	MODS
+;		L. Winner	06/01/82
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CCA:	;=	;		;entry
+	LDX	#1
+;	STX	MLTTMP		;initialize
+	DEX
+	STX	ADRESS+1	;clear high address
+	LDA	ROWCRS		;cursor row position
+	ASL	A		;2 times row position
+	ROL	ADRESS+1
+	ASL	A		;4 time row position
+	ROL	ADRESS+1
+	ADC	ROWCRS		;add to get 5 times row pos:
+	STA	ADRESS
+	BCC	CCA1
+
+	INC	ADRESS+1
+
+CCA1:
+;	LDY	DINDEX		;mode
+;	LDX	TLSC,Y		;left shift count
+	ldx	#4
+	
+CCA2:	ASL	ADRESS		;ADRESS = ADRESS*X
+	ROL	ADRESS+1	;divide
+	DEX
+	BNE	CCA2
+
+;	LDA	COLCRS+1	;high cursor column
+;	LSR	A		;save least significant bit
+
+	CLC
+	LDA	COLCRS		;low cursor column
+;	LDX	TRSC,Y		;right shift count
+;	BEQ	CCA4		;if no shift
+
+;CCA3:	ROR	A		;roll in carry
+;	ASL	MLTTMP		;shift index
+;	DEX
+;	BNE	CCA3
+
+CCA4:	ADC	ADRESS		;add address
+	BCC	CCA5		;if no carry
+
+	INC	ADRESS+1	;adjust high address
+
+CCA5:
+	.IF PLATFORM = 1
+	STA	CHRPTR
+	LDX	ADRESS+1
+	STX	CHRPTR+1
+	.ENDIF 
+	
+	CLC
+	ADC	SAVMSC		;add saved memory scan coun:
+	STA	ADRESS		;update address
+	STA	OLDADR		;save address
+	LDA	ADRESS+1
+	ADC	SAVMSC+1
+	STA	ADRESS+1
+	STA	OLDADR+1
+
+	.IF PLATFORM = 1
+	lda	CHRPTR+1
+	asl	CHRPTR
+	rol
+	asl	CHRPTR
+	rol
+	asl	CHRPTR
+	rol
+	adc	#>SCRSTRT
+	sta	CHRPTR+1
+	.ENDIF
+	
+;	LDX	TRSC,Y
+;	LDA	TMSK,X
+;	lda 	#0
+;	AND	COLCRS		;and in low cursor column
+;	ADC	OPNTMP
+;	TAY
+;	LDA	TDSM-1,Y	;display mask
+;	STA	DMASK		;display mask
+;	STA	SHFAMT
+	
+	.IF PLATFORM=0
+	lda 	#SCRBANK
+	sta	ADRESS+2
+	.ENDIF
+	
+	ldy	#0
+	;tay
+
+CCA6:	RTS			;return
+	
+;;	SZA - Set Zero Data and Advance Cursor Column
+;
+;	ENTRY	JSR	SZA
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SZA:	;=	;	;entry
+	LDA	#0
+	BEQ	SDA	;set data and advance cursor
+	
+;;	SEA - Set EOL Data and Advance Cursor Column
+;
+;	ENTRY	JSR	SEA
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SEA:	;=	;	;entry
+	LDA	#EOL	;special case eliminator
+;	JMP	SDA	;set data and advance cursor, retur:
+	
+;;	SDA - Set Data and Advance Cursor Column
+;
+;	ENTRY	JSR	SDA
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SDA:	;=	;	;entry
+	STA	INSDAT	;set data
+;	JMP	ACC	;advance cursor column, return
+	
+;;	ACC - Advance Cursor Column
+;
+;	ENTRY	JSR	ACC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ACC:	;=	;		;entry
+	INC	LOGCOL		;increment logical column
+	INC	COLCRS		;increment low cursor colum:
+	BNE	ACC1		;if no carry
+
+	INC	COLCRS+1	;adjust high cursor column
+
+ACC1:	LDA	COLCRS		;low cursor column
+;	LDX	DINDEX		;mode
+;	CMP	TMCC,X
+	CMP	#CCHARLINE
+	BEQ	ACC2		;if equal, process EOL
+
+;	CPX	#0
+;	BNE	CCA6		;if not mode 0, exit
+
+	CMP	RMARGN		;right margin
+	BEQ	CCA6		;if at right margin, exit
+
+	BCC	CCA6		;if before right margin, ex:
+
+ACC2:	CPX	#8
+	BNE	ACC3		;if not mode 8
+
+	LDA	COLCRS+1	;high cursor column
+	BEQ	CCA6		;if only at 64
+
+ACC3:;	LDA	DINDEX		;mode
+;	BNE	RET		;if mode 0, exit
+
+	LDA	LOGCOL		;logical column
+;	jsr	jprinthex
+	CMP	#81
+	BCC	ACC4		;if < 81, definitely not li:
+
+	LDA	INSDAT
+	BEQ	RET		;if non-zero, do not do log:
+
+	JSR	RWS		;return with scrolling
+	JMP	RET5		;return
+
+ACC4:	JSR	RET		;return
+	LDA	ROWCRS		;cursor row
+	CLC
+	ADC	#8*(LOGMAP-TABMAP)	;add offset for log:
+	JSR	BMG		;ger bit from bit map
+	BCC	ACC5
+
+	LDA	INSDAT
+	BEQ	ACC5		;if zero, do not extend
+
+	CLC
+	JSR	ILN1		;insert line
+
+ACC5:	JMP	SLC		;set logical column, return
+	
+;;	RWS - Return with Scrolling
+;
+;	ENTRY	JSR	RWS
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+RWS:	;=	;	;entry
+	LDA	#EOL	;select scrolling
+	STA	INSDAT
+;	JMP	RET	;return, return .
+	
+;;	RET - Return
+;
+;	ENTRY	JSR	RET
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+RET:	;=	;		;entry
+	JSR	SCL		;set cursor at left edge
+
+	LDA	#0
+	STA	COLCRS+1	;high cursor column
+	INC	ROWCRS		;increment cursor row
+;	LDX	DINDEX
+	LDY	#NUMROWS	;assume NUMROWS lines
+	BIT	SWPFLG
+	BPL	RET1		;if normal
+
+	LDY	#4		;substitute 4 lines
+	TYA
+	BNE	RET2
+
+RET1:	
+;	LDA	TMRC,X	;mode row count
+	lda	#NUMROWS
+
+RET2:	CMP	ROWCRS	;cursor row
+	BNE	RET5
+
+;	lda	#'*'
+;	jsr	jchrout
+	
+	STY	HOLD3
+	TXA		;mode
+	BNE	RET5	;if mode not 0, do not scroll
+
+	LDA	INSDAT
+	BEQ	RET5	;if zero, do not scroll
+
+;	If EOL, roll in a 0.
+
+	CMP	#EOL	;to extend bottom logical line
+	BEQ	RET3	;if EOL
+
+	CLC
+
+RET3:	JSR	SCR
+	INC	SCRFLG
+	DEC	BUFSTR
+	BPL	RET4
+
+	INC	BUFSTR
+
+RET4:	DEC	HOLD3
+	LDA	LOGMAP
+	SEC		;indicate for partial line
+	BPL	RET3	;if partial logical line
+
+	LDA	HOLD3
+	STA	ROWCRS	;cursor row
+
+RET5:	JMP	SLC	;set logical column, return
+	
+;;	SEP - Subtract End Point
+;
+;	ENTRY	JSR	SEP
+;		X = 0, if row or 2, if column
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SEP_:	;=	;		;entry
+	SEC
+	LDA	ROWAC,X		;low value from which to su:
+	SBC	ENDPT
+	STA	ROWAC,X		;new low value
+	LDA	ROWAC+1,X	;hogh value from which to s:
+	SBC	ENDPT+1
+	STA	ROWAC+1,X	;new high value
+	RTS			;return
+	
+;;	CRE - Check Cursor Range for Editor
+;
+;	ENTRY	JSR	SEP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CRE:	;=	;	;entry
+
+;	Check for mixed mode.
+
+;	LDA	BOTSCR
+;	CMP	#4	;mixed mode indicator
+;	BEQ	CCR	;if mixed mode, check cursor range,:
+
+;	Check for mode 0.
+
+;	LDA	DINDEX	;mode
+;	BEQ	CCR	;if mode 0, check ursor usage
+
+;	Open editor.
+
+;	JSR	EOP	;perform editor OPEN
+;	JMP	CCR	;check cursor range, return
+	
+;;	CCR - Check Cursor Range
+;
+;	ENTRY	JSR	CCR
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CCR:	;=	;		;entry
+	LDA	#CCHARLINE-1
+	CMP	RMARGN		;right margin
+	BCS	CCR1		;if 39 >= right margin
+	STA	RMARGN		;set right margin
+
+CCR1:
+;	LDX	DINDEX
+;	LDA	TMRC,X		;mode row count
+	lda	#NUMROWS
+	CMP	ROWCRS		;cursor row
+	BCC	CCR5		;if count > row position, e:
+	BEQ	CCR5		;if count = row position, e:
+
+;	CPX	#8
+;	BNE	CCR2		;if not mode 8
+
+	LDA	COLCRS+1	;high cursor column
+	BEQ	CCR4		;if high cursor column zero
+
+	CMP	#1
+	BNE	CCR5		;if >1, bad
+
+	BEQ	CCR3		;if 1, check low
+
+CCR2:	LDA	COLCRS+1	;high cursor column
+	BNE	CCR5		;if high cursor column non-:
+
+CCR3:
+;	LDA	TMCC,X		;mode column count
+	lda 	#CCHARLINE
+	CMP	COLCRS		;low cursor column
+	BCC	CCR5		;if count > column position:
+	BEQ	CCR5		;if count = column position:
+
+CCR4:	LDA	#SUCCES		;success indicator
+	STA	DSTAT		;indicate success
+;	LDA	#BRKABT		;assume BREAK abort
+;	LDX	BRKKEY		;BREAK key status
+;	STA	BRKKEY		;clear BREAK key status
+;	BEQ	CCR6		;if BREAK
+
+	RTS			;return
+
+;	Process range error.
+
+CCR5:	JSR	CHM		;move cursor home
+	LDA	#CRSROR		;indicate cursor overrange
+
+;	Exit.
+
+CCR6:	STA	DSTAT		;status
+	PLA			;clean stack for return to :
+	PLA
+	LDA	SWPFLG
+	BPL	CCR7		;if not swapped
+
+	JMP	SWA_		;swap, return
+
+CCR7:	JMP	SST		;return (to CIO)
+	
+;;	ROD - Restore Old Data under Cursor
+;
+;	ENTRY	JSR	ROD
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ROD:	;=	;		;entry
+	.IF PLATFORM = 1
+	lda	OLDADR
+	asl
+	sta	CHRPTR
+	.ENDIF
+	
+	LDY	#0
+	LDA	OLDADR+1
+	BEQ	ROD3		;if page zero
+	
+	.IF PLATFORM = 1
+	and	#%00000111
+	rol
+	asl	CHRPTR
+	rol
+	asl	CHRPTR
+	rol
+	adc	#>SCRSTRT
+	sta	CHRPTR+1
+	.ENDIF
+	
+	LDA	OLDCHR		;old data
+	.IF PLATFORM=0
+	sta	[OLDADR],Y
+	.ELSE
+	STA	(OLDADR),Y
+	.ENDIF
+
+
+	.IF PLATFORM = 1
+	clc
+	JMP	PRTCHR
+	.ENDIF
+	
+ROD3:	rts			;return
+	
+;;	BMI - Initialize for Bit Map Operation
+;
+;	BMI sets the bit mask in BITMSK and byte offset in :
+;
+;	ENTRY	JSR	BMI
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BMI_:	;=	;	;entry
+	PHA		;save logical column
+	AND	#7	;logical column modulo 8
+	TAX		;offset to bit mask
+	LDA	TBTM,X	;bit mask
+	STA	BITMSK	;set bit mask
+	PLA		;logical column
+	LSR	A
+	LSR	A
+	LSR	A	;logical column divided by 8
+	TAX		;offset
+	RTS		;return
+	
+;;	BLR - Rotate Logical Line Bit Map Left
+;
+;	BLR rotates the logical line bit map left, scrollin:
+;	logical lines up.
+;
+;	ENTRY	JSR	BLR
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BLR:	;=	;		;entry
+	ROL	LOGMAP+2
+	ROL	LOGMAP+1
+	ROL	LOGMAP
+	RTS			;return
+	
+;;	BMP - Put Bit in Bit Map
+;
+;	PUT CARRY INTO BITMAP
+;
+;	ENTRY	JSR	BMP
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BMP:	;=	;	;entry
+	BCC	BMC	;if C clear, clear bit in bit map,:
+
+;	JMP	BMS	;set bit in bit map, return
+	
+;;	BMS - Set Bit in Bit Map
+;
+;	ENTRY	JSR	BMS
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BMS:	;=	;		;entry
+	JSR	BMI_		;initialize for bit mask op:
+	LDA	TABMAP,X
+	ORA	BITMSK		;set bit
+	STA	TABMAP,X	;update bit map
+	RTS			;return
+	
+;;	BMC - Clear Bit in Bit Map
+;
+;	ENTRY	JSR	BMC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BMC:	;=	;		;entry
+	JSR	BMI_		;initialize for bit mask op:
+	LDA	BITMSK
+	EOR	#$FF
+	AND	TABMAP,X	;clear bit
+	STA	TABMAP,X	;update bit map
+	RTS			;return
+	
+;;	BLG - Get Bit from Logical Line Bit Map
+;
+;	ENTRY	JSR	BLG
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BLG:	;=	;	;entry
+	LDA	ROWCRS	;cursor row
+;	JMP	BLG1
+	
+;;	BLG1 - Get Bit from Logical Line Bit Map
+;
+;	ENTRY	JSR	BLG1
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BLG1:	;=	;	;entry
+	CLC
+;	JMP	BLG2
+	
+;;	BLG2 - Get Bit from Logical Line Bit Map
+;
+;	ENTRY	JSR	BLG2
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BLG2:	;=	;	;entry
+	ADC	#8*(LOGMAP-TABMAP)	;add offset for log:
+;	JMP	BMG	;get bit from bit map, return
+	
+;;	BMG - Get Bit from Bit Map
+;
+;	ENTRY	JSR	BMG
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+BMG:	;=	;	;entry
+	JSR	BMI_	;initialize for bit mask operation
+	CLC
+	LDA	TABMAP,X
+	AND	BITMSK
+	BEQ	BMG1
+
+	SEC
+
+BMG1:	RTS		;return
+	
+;;	CIA - Convert Internal Character to ATASCII
+;
+;	ENTRY	JSR	CIA
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CIA:	;=	;	;entry
+
+;	Initialize.
+
+	LDA	CHAR
+;	jmp	CIA2
+
+;	Check mode.
+
+;	LDY	DINDEX	;mode
+;	CPY	#14
+;	BCS	CIA2	;if mode >= 14
+
+;	CPY	#12
+;	BCS	CIA1	;if mode 12 or 13
+
+;	CPY	#3
+;	BCS	CIA2	;if mode >= 3
+
+;	Convert internal character to ATASCII.
+
+;CIA1:	ROL	A
+;	ROL	A
+;	ROL	A
+;	ROL	A
+;	AND	#3
+;	TAX
+;	LDA	CHAR	;character
+;	AND	#$9F	;strip off cloumn address
+;	ORA	TIAC,X	;or in new column address
+
+;	Exit.
+
+CIA2:	STA	ATACHR	;ATASCII character
+
+CIA3:	RTS		;return
+	
+;;	MLN - Move Line
+;
+;	ENTRY	JSR	MLN
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+MLN:	;=	;		;entry
+
+; Initialize.
+	.IF PLATFORM <= 1
+	lda	#SCRBANK
+	sta	FRMADR+2
+	sta	TOADR+2
+	.ENDIF
+	LDX	RAMTOP		;(high) RAM size
+	DEX			;decrement (high) RAM size
+	STX	FRMADR+1	;high source address
+	STX	TOADR+1		;high destination address
+	LDA	#<($0000-CCHARLINE-CCHARLINE)	;low RAM size - 80
+	STA	FRMADR		;low source address
+	LDA	#<($0000-CCHARLINE)	;low RAM size - 40
+	STA	TOADR		;low destination address
+
+	LDX	ROWCRS		;cursor row
+
+;	Check for completion.
+
+MLN1:	INX
+	CPX	BOTSCR		;screen bottom
+	BEQ	MLN3		;if done, return
+;	BEQ	CIA3		;if done, return
+
+;	Move line.
+
+	LDY	#CCHARLINE-1	;offset to last byte
+
+MLN2:	.IF PLATFORM <= 1
+	LDA	[FRMADR],Y	;byte of source
+	STA	[TOADR],Y	;byte of destination
+	.ELSE
+	LDA	(FRMADR),Y	;byte of source
+	STA	(TOADR),Y	;byte of destination
+	.ENDIF
+	DEY
+	BPL	MLN2		;if not done
+
+;	Adjust source and destination addresses.
+
+	SEC
+	LDA	FRMADR		;source address
+	STA	TOADR		;update destination address
+	SBC	#<CCHARLINE		;subtract 40
+	STA	FRMADR		;update.source address
+	LDA	FRMADR+1
+	STA	TOADR+1
+	SBC	#>CCHARLINE
+	STA	FRMADR+1
+
+;	Continue.
+
+	JMP	MLN1		;continue
+
+;
+; Move screen's bitmap
+;
+MLN3:
+	.IF PLATFORM <> 1
+	rts
+	.ELSE
+	lda	#1
+	sta	MEMCNTL
+	lda	#(>(SCRSTRT-256+(NUMROWS-1)*640))-$80		;last page in line 22 (0-23)
+	sta	FRMADR+1
+	lda	#(>(SCRSTRT-256+NUMROWS*640))-$80
+	sta	TOADR+1
+	lda	#<(SCRSTRT-256+(NUMROWS-1)*640)
+	sta	FRMADR
+	lda	#<(SCRSTRT-256+NUMROWS*640)
+	sta	TOADR
+	
+	LDX	ROWCRS		;cursor row
+
+MLN6:	INX
+	CPX	BOTSCR		;screen bottom
+	BNE	MLN8		;if done, return
+
+MLNEX:	lda	#0
+	sta	MEMCNTL
+	rts
+	
+MLN8:	ldy	#0
+MLN4:	lda	(FRMADR),y
+	sta	(TOADR),y
+	iny
+	bne	MLN4
+	
+	dec	FRMADR+1
+	dec	TOADR+1
+
+MLN7:	lda	(FRMADR),y
+	sta	(TOADR),y
+	iny
+	bne	MLN7
+	
+	sec
+	lda	FRMADR
+	sbc	#128
+	sta	FRMADR
+	lda	FRMADR+1
+	sbc	#0
+	sta	FRMADR+1
+	sec
+	lda	TOADR
+	sbc	#128
+	sta	TOADR
+	lda	TOADR+1
+	sbc	#0
+	sta	TOADR+1
+		
+	ldy	#127
+MLN5:	lda	(FRMADR),y
+	sta	(TOADR),y
+	dey
+	bpl	MLN5
+	
+	dec	FRMADR+1
+	dec	TOADR+1
+
+	jmp	MLN6
+	.ENDIF
+
+;;	ELL - Extend Logical Line
+;
+;	ENTRY	JSR	ELL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+ELL:	;=	;	;entry
+	PHP		;save bit
+	LDY	#22
+
+ELL1:	TYA
+	JSR	BLG1
+	PHP
+	TYA
+	CLC
+	ADC	#8*(LOGMAP-TABMAP)+1	;add offset for log:
+	PLP
+	JSR	BMP	;put bit in bit map
+	DEY
+	BMI	ELL2
+
+	CPY	ROWCRS	;cursor row
+	BCS	ELL1
+
+ELL2:	LDA	ROWCRS	;cursor row
+	CLC
+	ADC	#8*(LOGMAP-TABMAP)	;add offset for log:
+	PLP
+	JMP	BMP	;put bit in bit map, return
+	
+;;	CLN - Clear Line
+;
+;	ENTRY	JSR	CLN
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CLN:	;=	;	;entry
+	LDA	LMARGN	;left margin
+	STA	COLCRS	;low cursor column
+	JSR	CCA	;convert cursor row/column to addre:
+	SEC
+	LDA	RMARGN	;right margin
+	SBC	LMARGN	;subtract left margin
+	TAY		;screen width
+	TAX
+	LDA	#0
+
+CLN1:	.IF PLATFORM=0
+	sta	[ADRESS],Y
+	.ELSE
+	STA	(ADRESS),Y
+	.ENDIF
+	DEY
+	BPL	CLN1	;if not done
+
+
+	.IF PLATFORM = 1
+	clc
+	jsr	PRTCHR
+	bmi	CLN4
+	
+CLN3:	clc
+	jsr	PRTCH2
+CLN4:	clc
+	lda	CHRPTR
+	adc	#8
+	sta	CHRPTR
+	bcc	CLN2
+	inc	CHRPTR+1
+CLN2:	dex
+	bpl	CLN3
+	.ENDIF
+	
+	RTS		;return
+	
+;;	SCR - Scroll
+;
+;	ENTRY	JSR	SCR
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SCR:	;=	;	;entry
+
+;	Initialize.
+
+	JSR	BLR	;rotate logical line bit map left
+
+;	Check for fine scrolling.
+
+;	LDA	FINE
+;	BEQ	SCR5	;if not fine scrolling
+
+;SCR1:	LDA	VSFLAG	;vertical scroll count
+;	BNE	SCR1	;if prior scroll not yet done
+
+;	LDA	#8
+;	STA	VSFLAG	;vertical scroll count
+
+;	Wait forscroll to complete.
+
+;SCR2:	LDA	VSFLAG	;vertical scroll count
+;	CMP	#1	;start of last scan
+;	BNE	SCR2	;if not done waiting
+
+;SCR3:
+;	LDA	VCOUNT
+;	CMP	#$40
+;	BCS	SCR3	;if not done waiting for safe place
+
+;	LDX	#$0D
+;	LDA	BOTSCR
+;	CMP	#4
+;	BNE	SCR4	;if not split screen
+
+;	LDX	#$70
+
+;SCR4:
+;	CPX	VCOUNT
+;	BCS	SCR4	;if not done waiting
+
+;	Exit.
+
+SCR5:	JSR	SMS	;set memory scan counter address
+;	JMP	SSD	;scroll screen for delete, return
+	
+;;	SSD - Scroll Screen for Delete
+;
+;	ENTRY	JSR	SSD
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SSD:	;=	;		;entry
+
+	php
+
+	sep	#$20
+	.A8
+
+	.IF PLATFORM = 1
+	lda	#1
+	sta 	MEMCNTL
+	.ENDIF
+	
+;	clc
+;	sei
+;	xce
+	
+	rep	#$30
+	.A16
+	.I16
+
+	clc
+	lda	ADRESS
+	tay
+	adc	#CCHARLINE
+	tax
+	
+	sec
+	sbc	#SCRSTRT+NUMROWS*80
+	eor	#$ffff
+	
+	.if PLATFORM=0
+;	sei
+	phb
+	mvn	#SCRBANK,#SCRBANK
+	plb
+;	cli
+	.ELSE
+	mvn	0,0
+	.ENDIF
+	
+	ldx	#SCRSTRT+(NUMROWS-1)*80
+	ldy	#SCRSTRT+(NUMROWS-1)*80+1
+	lda	#0
+	sta	SCRBANK<<16+SCRSTRT+(NUMROWS-1)*80
+	lda	#78
+	.if PLATFORM=0
+;	sei
+	phb
+	mvn	#SCRBANK,#SCRBANK
+	plb
+;	cli
+	.ELSE
+	mvn	0,0
+	.ENDIF
+
+	.IF PLATFORM = 1
+	lda	ADRESS
+	and	#$07ff
+	asl
+	asl
+	asl
+	adc	#SCRSTRT-$8000
+	tay	
+	adc	#640
+	tax
+	
+	sec
+	sbc	#$4000+NUMROWS*640
+	eor	#$ffff
+	
+	mvn	0,0
+	
+	ldx	#$4000+(NUMROWS-1)*640
+	ldy	#$4000+(NUMROWS-1)*640+1
+	lda	#638		
+	stz	$4000+(NUMROWS-1)*640		
+	mvn	0,0
+	
+;	sec
+;	xce
+;	cli
+
+	.ENDIF
+	plp
+	.A8
+	.I8
+
+	.IF PLATFORM = 1
+	stz	MEMCNTL
+	.ENDIF
+	
+	.IF PLATFORM = 99
+	
+	jmp	(SSDVEC)
+	
+;	Initialize
+SSDV:	lda 	#1
+	sta 	MEMCNTL
+	
+	LDA	ADRESS
+	CLC
+	ADC	#CCHARLINE
+	STA	COUNTR		;address + #CCHARLINE
+	LDA	#0
+	tay
+	ADC	ADRESS+1
+	STA	COUNTR+1
+	lda	ADRESS
+	asl
+	sta	TOADR
+	lda	ADRESS+1	
+	and	#%00000111
+	rol
+	asl	TOADR
+	rol
+	asl	TOADR
+	rol
+	adc	#(>SCRSTRT)-$80
+	sta	TOADR+1
+
+	clc
+	lda	TOADR
+	adc	#<640
+	sta	FRMADR
+	lda	TOADR+1
+	adc	#>640
+	sta	FRMADR+1
+	
+	sec
+	lda 	#$D0
+	sbc	COUNTR
+	beq	SSDR2
+
+	pha
+	tax
+	
+;	lda	COUNTR+1
+;	jsr	jprinthex
+;	lda	COUNTR
+;	jsr	jprinthex
+;	txa
+;	jsr	jprinthex
+;	jsr	jnewline
+
+SSDR1:	lda	(COUNTR),y
+	sta	(ADRESS),y
+	iny
+	dex
+	bne	SSDR1
+
+	ldy	#0
+	clc
+	pla
+	tax
+	adc	COUNTR
+	sta	COUNTR
+	bcc	SSDR6
+	inc	COUNTR+1
+SSDR6:	clc
+	txa
+	adc	ADRESS
+	sta	ADRESS
+	bcc	SSDR2
+	inc	ADRESS+1
+
+SSDR2:
+;	lda	COUNTR+1
+;	jsr	jprinthex
+;	lda	COUNTR
+;	jsr	jprinthex
+;	jsr	jnewline
+	
+	sec
+	lda	COUNTR+1
+	sbc	SAVMSC+1
+	cmp	#7
+	beq	SSDR3
+	
+SSDR4:	lda	(COUNTR),y
+	sta	(ADRESS),y
+	iny
+	bne	SSDR4
+
+	inc	ADRESS+1
+	inc	COUNTR+1
+	bne	SSDR2		; jmp!
+
+SSDR3:	lda	#$30
+	sta	COUNTR
+	ldy	#CCHARLINE-1
+	lda	#0
+SSDR5:	sta	(COUNTR),y
+	dey
+	bne	SSDR5
+
+
+;	lda	FRMADR+1
+;	jsr	jprinthex
+;	lda	FRMADR
+;	jsr	jprinthex
+;	lda	TOADR+1
+;	jsr	jprinthex
+;	lda	TOADR
+;	jsr	jprinthex
+	
+	ldy 	#0
+	lda	FRMADR
+	beq	SSDRX1
+
+SSDRX4:	lda	(FRMADR),y
+	sta	(TOADR),y
+	iny
+	cpy	#128
+	bne	SSDRX4
+
+	lda	#0
+	tay
+	sta	FRMADR
+	inc	FRMADR+1
+	
+	lda	#$80
+	sta	TOADR	
+
+SSDRX1:
+;	lda	FRMADR+1
+;	jsr	jprinthex
+;	lda	FRMADR
+;	jsr	jprinthex
+;	lda	TOADR+1
+;	jsr	jprinthex
+;	lda	TOADR
+;	jsr	jprinthex
+
+	sec
+	lda	FRMADR+1
+	sbc	#(>SCRSTRT)-$80
+	cmp	#$3C
+	beq	SSDRX2
+
+SSDRX3:	lda	(FRMADR),y
+	sta	(TOADR),y
+	iny
+	bne	SSDRX3
+
+	inc	FRMADR+1
+	inc	TOADR+1
+	bne	SSDRX1
+
+SSDRX2:	ldx	#2
+	lda	#0
+SSDRX5:	sta	(TOADR),y
+	iny
+	bne	SSDRX5
+	inc	TOADR+1
+	dex
+	bne	SSDRX5
+
+	ldy	#127
+SSDRX6:	sta	(TOADR),y
+	dey
+	bpl	SSDRX6
+
+	iny
+	sty	MEMCNTL
+	
+	.ENDIF
+	
+;	jmp	SLC
+	
+;;	SLC - Set Logical Column
+;
+;	ENTRY	JSR	SLC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SLC:	;=	;	;entry
+
+;	Initialize.
+
+	LDA	#0
+	STA	LOGCOL	;initialize logical column
+	LDA	ROWCRS	;cursor row
+	STA	HOLD1	;working row
+
+;	Search for beginning of line.
+
+SLC1:	LDA	HOLD1	;add in row component
+	JSR	BLG1
+	BCS	SLC2	;if beginning of line found
+
+	LDA	LOGCOL	;logical column
+	CLC
+	ADC	#CCHARLINE	;add number of characters per line
+	STA	LOGCOL	;update logical column
+	DEC	HOLD1	;decrement working row
+	JMP	SLC1	;continue
+
+;	Add in cursor column.
+
+SLC2:	CLC
+	LDA	LOGCOL	;logical column
+	ADC	COLCRS	;add low cursor column
+	STA	LOGCOL	;update logical column
+	RTS		;return
+	
+;;	CBC - Compute Buffer Count
+;
+;	CBC computes the buffer count as the number of byte:
+;	buffer start to the end of the logical line (with t:
+;	spaces removed).
+;
+;	ENTRY	JSR	CBC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CBC:	;=	;	;entry
+
+;	Initialize.
+
+	JSR	SRC		;save row and column
+	LDA	LOGCOL		;logical column
+	PHA			;save logical column
+	LDA	BUFSTR		;start of buffer
+	STA	ROWCRS		;cursor row
+	LDA	BUFSTR+1
+	STA	COLCRS		;low cursor column
+	LDA	#1
+	STA	BUFCNT		;initialize buffer count
+
+;	Determine last line on screen.
+
+CBC1:	LDX	#(NUMROWS-1)	;normal last line on screen
+	LDA	SWPFLG
+	BPL	CBC2		;if not swapped
+
+	LDX	#3		;last line on screen
+
+;	Check for cursor on last line of screen.
+
+CBC2:	CPX	ROWCRS	;cursor row
+	BNE	CBC3	;if cursor on last line
+
+	LDA	COLCRS	;low cursor column
+	CMP	RMARGN	;right margin
+	BNE	CBC3	;if not at right margin
+
+	INC	BUFCNT	;fake SEA to avoid scrolling
+	JMP	CBC4
+
+CBC3:	JSR	SZA	;set zero data and advance cursor
+	INC	BUFCNT
+	LDA	LOGCOL	;logical column
+	CMP	LMARGN	;left margin
+	BNE	CBC1	;if not yet at left margin
+
+	DEC	ROWCRS	;decrement cursor row
+	JSR	CLF	;move cursor left
+
+CBC4:	JSR	GDC	;get data under cursor
+	BNE	CBC6	;if non-zero, quit
+
+	DEC	BUFCNT	;DECREMENT COUNTER
+	LDA	LOGCOL	;logical column
+	CMP	LMARGN	;left margin
+	BEQ	CBC6	;if beginning of logical line, exit
+
+	JSR	CLF	;move cursor left
+	LDA	COLCRS	;low cursor column
+	CMP	RMARGN	;right margin
+	BNE	CBC5	;if cursor column not right margin
+
+	DEC	ROWCRS	;decrement cursor row
+
+CBC5:	LDA	BUFCNT
+	BNE	CBC4	;if BUFCNT non-zero, continue
+
+CBC6:	PLA		;saved logical column
+	STA	LOGCOL	;restore logical column
+	JMP	RRC	;restore row and column, return
+	
+;;	SBS - Set Bufer Start and Logical Column
+;
+;	ENTRY	JSR	SBS
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SBS:		;=	;		;entry
+	JSR	SLC		;set logical column
+	LDA	HOLD1
+	STA	BUFSTR
+	LDA	LMARGN		;left margin
+	STA	BUFSTR+1
+
+SBS1:	RTS			;return
+	
+;;	DQQ - Delete Line
+;
+;	ENTRY	JSR	DQQ
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DQQ:	;=	;	;entry
+	LDA	LOGCOL	;logical column
+	CMP	LMARGN	;left margin
+	BNE	DQQ1	;if not at left margin
+
+	DEC	ROWCRS	;decrement cursor row
+DQQ1:	JSR	SLC	;set logical column
+;	JMP	DWQ
+	
+;;	DWQ - Delete Line
+;
+;	ENTRY	JSR	DWQ
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+DWQ:	;=	;	;entry
+
+;	Check for left margin.
+	
+	LDA	LOGCOL	;logical column
+	CMP	LMARGN	;left margin
+	BEQ	SBS1	;if at left margin, return
+
+	JSR	CCA	;convert cursor row/column to addre:
+	LDA	RMARGN	;right margin
+	SEC
+	SBC	LMARGN	;subtract left margin
+	TAY		;offset to last byte
+
+DWQ1:
+	.IF PLATFORM=0
+	lda	[ADRESS],Y	
+	.ELSE
+	LDA	(ADRESS),Y
+	.ENDIF
+	BNE	SBS1
+
+	DEY
+	BPL	DWQ1	;if not done
+
+	JMP	DLN1	;delete line, return
+	
+;;	CCC - Check for Control Character
+;
+;	ENTRY	JSR	CCC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+CCC:	;=	;	;entry
+
+	LDX	#TCCRL-3	;offset to last entry
+
+CCC1:	LDA	TCCR,X		;control character
+	CMP	ATACHR		;ATASCII character
+	BEQ	CCC2		;if character found, exit
+
+	DEX
+	DEX
+	DEX
+	BPL	CCC1		;if not done, continue sear:
+
+CCC2:	RTS			;return
+	
+;;	SRC - Save Row and Column
+;
+;	ENTRY	JSR	SRC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SRC:	;=	;		;entry
+	LDX	#2		;offset to last byte
+
+SRC1:	LDA	ROWCRS,X	;byte of cursor row/column
+	STA	TMPROW,X	;save byte of cursor row/co:
+	DEX
+	BPL	SRC1		;if not done
+
+	RTS			;return
+	
+;;	RRC - Restore Row and Column
+;
+;	ENTRY	JSR	RRC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+RRC:	;=	;		;entry
+	LDX	#2		;offset to last byte
+
+RRC1:	LDA	TMPROW,X	;byte of saved cursor row/c:
+	STA	ROWCRS,X	;byte of row/column
+	DEX
+	BPL	RRC1		;if not done
+
+	RTS			;return
+	
+;;	SWA - Swap Cursor Position with Regular Cursor Posi:
+;
+;	ENTRY	JSR	SWA
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SWA_:	;=	;		;entry
+
+;	Check for split screen.
+
+	LDA	BOTSCR		;screen bottom
+	CMP	#NUMROWS	;normal indicator
+	BEQ	SWA2		;if not split screen
+
+;	Swap cursor parameters.
+
+	LDX	#11		;offset to last byte
+
+SWA1:	LDA	ROWCRS,X	;destination cursor paramet:
+	PHA			;save cursor parameter
+	LDA	TXTROW,X	;source cursor parameter
+	STA	ROWCRS,X	;update destination cursor :
+	PLA			;saved cursor parameter
+	STA	TXTROW,X	;update source cursor param:
+	DEX
+	BPL	SWA1		;if not done
+
+;	Complement swap flag.
+
+	LDA	SWPFLG		;swap flag
+	EOR	#$FF		;complement swap flag
+	STA	SWPFLG		;update swap flag
+
+;	Exit.
+
+SWA2:	JMP	SST	;perform screen STATUS, return
+	
+;;	SKC - Sound Key Click
+;
+;	ENTRY	JSR	SKC
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SKC:	;=	;	;entry
+
+;	Initialize.
+
+	RTS		;return
+	
+;;	SCL - Set Cursor at Left Edge
+;
+;	ENTRY	JSR	SCL
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SCL:	;=	;	;entry
+
+	LDA	#0	;assume 0
+
+	LDX	SWPFLG	;swap flag
+	BNE	SCL1	;if not swapped
+
+;	LDX	DINDEX	;mode
+;	BNE	SCL2	;if not mode 0
+
+SCL1:	LDA	LMARGN	;use left margin instead of 0
+
+SCL2:	STA	COLCRS	;set low cursor column
+	RTS		;return
+	
+;;	SMS - Set Memory Scan Counter Address
+;
+;	ENTRY	JSR	SMS
+;
+;	MODS
+;		Original Author Unknown
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SMS:	;=	;		;entry
+	LDA	SAVMSC		;saved low memory scan coun:
+	STA	ADRESS		;saved low address
+	LDA	SAVMSC+1	;saved high memory scan cou:
+	STA	ADRESS+1	;set high address
+	.IF PLATFORM=0
+	lda	#SCRBANK
+	sta	ADRESS+2
+	sta	OLDADR+2
+	.ENDIF
+	RTS			;return
+	
+;;	SSP - Perform Screen SPECIAL
+;
+;	SSP draws a line from OLDROW/OLDCOL to NEWROW/NEWCO:
+;
+;	ENTRY	JSR	SSP
+;
+;	MODS
+;		A. Miller
+;		1. Bring closer to Coding Standard (object unchanged).
+;		   R. K. Nordin	11/01/83
+
+
+SSP:	;=	;		;entry
+
+;	Determine command.
+
+	LDX	#0		;assume no fill
+	LDA	ICCOMZ		;command
+	CMP	#$11		;DRAW command
+	BEQ	SSP2		;if DRAW command
+
+	CMP	#$12		;FILL command
+	BEQ	SSP1		;if FILL command
+
+	LDY	#NVALID		;invalid command error
+	RTS			;return
+
+SSP1:	INX			;indicate fill
+
+SSP2:	STX	FILFLG		;right fill flag
+
+;	Set destination row/column.
+
+	LDA	ROWCRS		;cursor row
+	STA	NEWROW
+	LDA	COLCRS		;cursor column
+	STA	NEWCOL
+	LDA	COLCRS+1
+	STA	NEWCOL+1
+
+;	Compute row increment and difference.
+
+	LDA	#1		;assume increment +1
+	STA	ROWINC		;row increment
+	STA	COLINC		;column increment
+	SEC
+	LDA	NEWROW		;destination row
+	SBC	OLDROW		;subtract source row
+	STA	DELTAR		;row difference
+	BCS	SSP3		;if difference positive
+
+;	Set row increment to -1 and complement row differen:
+
+	LDA	#$FF		;increment -1
+	STA	ROWINC		;update row increment
+	LDA	DELTAR		;row difference
+	EOR	#$FF
+	CLC
+	ADC	#1		;add 1 for 2's complement
+	STA	DELTAR		;update row difference
+
+;	Compute column increment and difference.
+
+SSP3:	SEC
+	LDA	NEWCOL		;destination column
+	SBC	OLDCOL		;source column
+	STA	DELTAC		;column difference
+	LDA	NEWCOL+1
+	SBC	OLDCOL+1
+	STA	DELTAC+1
+	BCS	SSP4		;if difference positive
+
+;	Set column increment to -1 and complement column di:
+
+	LDA	#$FF		;increment -1
+	STA	COLINC		;update column increment
+	LDA	DELTAC		;column difference
+	EOR	#$FF		;absolute value of column d:
+	STA	DELTAC		;update column difference
+	LDA	DELTAC+1
+	EOR	#$FF
+	STA	DELTAC+1
+	INC	DELTAC		;add 1 for 2's complement
+	BNE	SSP4		;if no carry
+
+	INC	DELTAC+1	;adjust for 2's complement
+
+SSP4:	LDX	#2		;offset to last byte
+	LDY	#0
+	STY	COLAC+1		;zero high working column
+
+SSP5:	TYA
+	STA	ROWAC,X		;zero byte of working row/c:
+	LDA	OLDROW,X	;byte of source row/column
+	STA	ROWCRS,X	;byte of cursor row/column
+	DEX
+	BPL	SSP5		;if not done
+
+;	Determine difference.
+
+	LDA	DELTAC		;low column difference
+	INX			;offset to working row
+	TAY			;low column difference
+	LDA	DELTAC+1	;high column difference
+	STA	COUNTR+1	;initialize high iteration :
+	STA	ENDPT+1		;initialize high end point
+	BNE	SSP6		;if high column difference :
+
+	LDA	DELTAC		;low column difference
+	CMP	DELTAR		;row difference
+	BCS	SSP6		;if column difference > row:
+
+	LDA	DELTAR		;row difference
+	LDX	#2		;offset to working column
+	TAY			;row difference
+
+SSP6:	TYA			;low maximum difference
+	STA	COUNTR		;low iteration counter
+	STA	ENDPT		;low end point
+	PHA			;save low end point
+	LDA	ENDPT+1		;high end point
+	LSR	A		;C = LSB of high end point
+	PLA			;saved low end point
+	ROR	A
+	STA	ROWAC,X		;low working row or column
+
+;	Check for iteration counter zero.
+
+SSP7:	LDA	COUNTR		;low iteration counter
+	ORA	COUNTR+1	;or in high iteration count:
+	BNE	SSP8		;if iteration counter is no:
+
+	JMP	SSP19		;exit
+
+;	Update working row.
+
+SSP8:	CLC
+	LDA	ROWAC		;working row
+	ADC	DELTAR		;row difference
+	STA	ROWAC		;update working row
+	BCC	SSP9		;if no carry
+
+	INC	ROWAC+1		;adjust high working row
+
+SSP9:	LDA	ROWAC+1		;high working row
+	CMP	ENDPT+1		;high end point
+	BCC	SSP11		;if high working row < high:
+
+	BNE	SSP10		;if high working row > high:
+
+	LDA	ROWAC		;low working row
+	CMP	ENDPT		;low end point
+	BCC	SSP11		;if low working row < low e:
+
+SSP10:	CLC
+	LDA	ROWCRS		;cursor row
+	ADC	ROWINC		;add row increment
+	STA	ROWCRS		;update cursor row
+	LDX	#0		;indicate subtract from wor:
+	JSR	SEP_		;subtract end pointer
+
+SSP11:	CLC
+	LDA	COLAC		;low working column
+	ADC	DELTAC		;add column difference
+	STA	COLAC		;update working column
+	LDA	COLAC+1
+	ADC	DELTAC+1
+	STA	COLAC+1
+	CMP	ENDPT+1		;high end point
+	BCC	SSP15		;if high working column < h:
+
+	BNE	SSP12		;if high working column > h:
+
+	LDA	COLAC		;low working column
+	CMP	ENDPT		;low end point
+	BCC	SSP15		;if low working column < lo:
+
+SSP12:	BIT	COLINC		;column increment
+	BPL	SSP13		;if column increment positi:
+
+	DEC	COLCRS		;decrement low cursor colum:
+	LDA	COLCRS		;low cursor column
+	CMP	#$FF
+	BNE	SSP14
+
+	LDA	COLCRS+1	;high cursor column
+	BEQ	SSP14		;if zero, do not decrement
+
+	DEC	COLCRS+1	;decrement high cursor colu:
+	BPL	SSP14
+
+SSP13:	INC	COLCRS		;increment low cursor colum:
+	BNE	SSP14		;if no carry
+
+	INC	COLCRS+1	;adjust high cursor column
+
+SSP14:	LDX	#2		;indicate subtract from wor:
+	JSR	SEP_		;subtract end pointer
+
+;	Plot point.
+
+SSP15:	JSR	CCR		;check cursor range
+	JSR	PLO		;plot point
+
+;	Check for right fill.
+
+	LDA	FILFLG		;right fill flag
+	BEQ	SSP18		;if no right fill
+
+;	Process right fill.
+
+	JSR	SRC		;save row and column
+	LDA	ATACHR		;plot point
+	STA	HOLD4		;save plot point
+
+SSP16:	LDA	ROWCRS		;cursor row
+	PHA			;save cursor row
+	JSR	ACC		;advance cursor column
+	PLA			;saved cursor row
+	STA	ROWCRS		;restore cursor row
+	JSR	CCR		;check cursor range
+	JSR	GDC		;get data under cursor
+	BNE	SSP17		;if non-zero data encounter:
+
+	LDA	FILDAT		;fill data
+	STA	ATACHR		;plot point
+	JSR	PLO		;plot point
+	JMP	SSP16		;continue
+
+SSP17:	LDA	HOLD4		;saved plot point
+	STA	ATACHR		;restore plot point
+	JSR	RRC		;restore row and column
+
+;	Subtract 1 from iteration counter.
+
+SSP18:	SEC
+	LDA	COUNTR		;iteration counter
+	SBC	#1		;subtract 1
+	STA	COUNTR		;update iteration counter
+	LDA	COUNTR+1
+	SBC	#0
+	STA	COUNTR+1
+
+;	Check for completion.
+
+	BMI	SSP19	;if iteration counter negative, exi:
+
+	JMP	SSP7	;continue
+
+;	Exit.
+
+SSP19:	JMP	SST	;perform screen STATUS, return
+	
+;**	TMSK - Table of Bit Masks
+
+
+;TMSK:	.byte	$00	;0 - mask for no bits
+;	.byte	$01	;1 - mask for lower 1 bit
+;	.byte	$03	;2 - mask for lower 2 bits
+;	.byte	$07	;3 - mask for lower 3 bits
+	
+;**	TDSC - Table of Default Screen Colors
+
+
+;TDSC:	.byte	$28	;default playfield 0 color
+;	.byte	$CA	;default playfield 1 color
+;	.byte	$94	;default playfield 2 color
+;	.byte	$46	;default playfield 3 color
+;	.byte	$00	;default background color
+	
+;;	TCCR - Table of Control Character Routines
+;
+;	Each entry is 3 bytes. The first byte is the contr:
+;	character; the second and third bytes are the addre:
+;	the routine which processes the control character.
+
+
+TCCR:	.byte	$1B
+	.word	ESC_	;escape
+
+	.byte	CCUP
+	.word	CUP	;move cursor up
+
+	.byte	CCDN
+	.word	CDN	;move cursor down
+
+	.byte	CCLF
+	.word	CLF	;move cursor left
+
+	.byte	CCRT
+	.word	CRT	;move cursor right
+
+	.byte	CLS
+	.word	CSC	;clear screen
+
+	.byte	BACK
+	.word	BSP	;backspace
+
+	.byte	TABU
+	.word	TAB	;tab
+
+	.byte	EOL	;$9B
+	.word	RWS	;return with scrolling
+
+	.byte	$9C
+	.word	DLN	;delete line
+
+	.byte	CILN
+	.word	ILN	;insert line
+
+	.byte	$9E
+	.word	CTB	;clear tab
+
+	.byte	$9F
+	.word	STB	;set tab
+
+	.byte	$FD
+	.word	BEL	;sound bell
+
+	.byte	CDCH
+	.word	DCH	;delete character
+
+	.byte	CICH
+	.word	ICH	;insert character
+
+TCCRL	= * - TCCR	;length
+	
+;;	TSFR - Table of Super Function (Shifted Function Ke:
+;
+;	Each entry is 3 bytes. The first byte is the super:
+;	character; the second and third bytes are the addre:
+;	routine which processes the super function.
+
+
+TSFR:	.byte	CCHM
+	.word	CHM	;move cursor home
+
+	.byte	CCBT
+	.word	CBT	;move cursor to bottom
+
+	.byte	CCLM
+	.word	CLM	;move cursor to left margin
+
+	.byte	CCRM
+	.word	CRM	;move cursor to right margin
+	
+;;	TAIC - Table of ATASCII to Internal Conversion Cons:
+
+
+;TAIC:	.byte	$40	;0
+;	.byte	$00	;1
+;	.byte	$20	;2
+;	.byte	$60	;3
+	
+;;	TIAC - Table of Internal to ATASCII Conversion Cons:
+
+
+;TIAC:	.byte	$20	;0
+;	.byte	$40	;1
+;	.byte	$00	;2
+;	.byte	$60	;3
+	
+;;	TCKD - Table of Character Key Definitions
+;
+;	Entry n is the ATASCII equivalent of key code n.
+
+
+TCKD:	;=	;
+
+;	Lower Case Characters
+
+;	.byte	$6C	;$00 - l
+;	.byte	$6A	;$01 - j
+;	.byte	$3B	;$02 - semicolon
+;	.byte	$8A	;$03 - F1
+;	.byte	$8B	;$04 - F2
+;	.byte	$6B	;$05 - k
+;	.byte	$2B	;$06 - +
+;	.byte	$2A	;$07 - *
+;	.byte	$6F	;$08 - o
+;	.byte	$80	;$09 - (invalid)
+;	.byte	$70	;$0A - p
+;	.byte	$75	;$0B - u
+;	.byte	$9B	;$0C - return
+;	.byte	$69	;$0D - i
+;	.byte	$2D	;$0E - -
+;	.byte	$3D	;$0F - =
+;
+;	.byte	$76	;$10 - v
+;	.byte	$80	;$11 - (invalid)
+;	.byte	$63	;$12 - c
+;	.byte	$8C	;$13 - F3
+;	.byte	$8D	;$14 - F4
+;	.byte	$62	;$15 - b
+;	.byte	$78	;$16 - x
+;	.byte	$7A	;$17 - z
+;	.byte	$34	;$18 - 4
+;	.byte	$80	;$19 - (invalid)
+;	.byte	$33	;$1A - 3
+;	.byte	$36	;$1B - 6
+;	.byte	$1B	;$1C - escape
+;	.byte	$35	;$1D - 5
+;	.byte	$32	;$1E - 2
+;	.byte	$31	;$1F - 1
+;
+;	.byte	$2C	;$20 - comma
+;	.byte	$20	;$21 - space
+;	.byte	$2E	;$22 - period
+;	.byte	$6E	;$23 - n
+;	.byte	$80	;$24 - (invalid)
+;	.byte	$6D	;$25 - m
+;	.byte	$2F	;$26 - /
+;	.byte	$81	;$27 - inverse
+;	.byte	$72	;$28 - r
+;	.byte	$80	;$29 - (invalid)
+;	.byte	$65	;$2A - e
+;	.byte	$79	;$2B - y
+;	.byte	$7F	;$2C - tab
+;	.byte	$74	;$2D - t
+;	.byte	$77	;$2E - w
+;	.byte	$71	;$2F - q
+;
+;	.byte	$39	;$30 - 9
+;	.byte	$80	;$31 - (invalid)
+;	.byte	$30	;$32 - 0
+;	.byte	$37	;$33 - 7
+;	.byte	$7E	;$34 - backspace
+;	.byte	$38	;$35 - 8
+;	.byte	$3C	;$36 - <
+;	.byte	$3E	;$37 - >
+;	.byte	$66	;$38 - f
+;	.byte	$68	;$39 - h
+;	.byte	$64	;$3A - d
+;	.byte	$80	;$3B - (invalid)
+;	.byte	$82	;$3C - CAPS
+;	.byte	$67	;$3D - g
+;	.byte	$73	;$3E - s
+;	.byte	$61	;$3F - a
+;
+;;	Upper Case Characters
+;
+;	.byte	$4C	;$40 - L
+;	.byte	$4A	;$41 - J
+;	.byte	$3A	;$42 - colon
+;	.byte	$8A	;$43 - SHIFT-F1
+;	.byte	$8B	;$44 - SHIFT-F2
+;	.byte	$4B	;$45 - K
+;	.byte	$5C	;$46 - \
+;	.byte	$5E	;$47 - ^
+;	.byte	$4F	;$48 - O
+;	.byte	$80	;$49 - (invalid)
+;	.byte	$50	;$4A - P
+;	.byte	$55	;$4B - U
+;	.byte	$9B	;$4C - SHIFT-return
+;	.byte	$49	;$4D - I
+;	.byte	$5F	;$4E - _
+;	.byte	$7C	;$4F - |
+;
+;	.byte	$56	;$50 - V
+;	.byte	$80	;$51 - (invalid)
+;	.byte	$43	;$52 - C
+;	.byte	$8C	;$53 - SHIFT-F3
+;	.byte	$8D	;$54 - SHIFT-F4
+;	.byte	$42	;$55 - B
+;	.byte	$58	;$56 - X
+;	.byte	$5A	;$57 - Z
+;	.byte	$24	;$58 - $
+;	.byte	$80	;$59 - (invalid)
+;	.byte	$23	;$5A - #
+;	.byte	$26	;$5B - &
+;	.byte	$1B	;$5C - SHIFT-escape
+;	.byte	$25	;$5D - %
+;	.byte	$22	;$5E - "
+;	.byte	$21	;$5F - !
+;
+;	.byte	$5B	;$60 - [
+;	.byte	$20	;$61 - SHIFT-space
+;	.byte	$5D	;$62 - ]
+;	.byte	$4E	;$63 - N
+;	.byte	$80	;$64 - (invalid)
+;	.byte	$4D	;$65 - M
+;	.byte	$3F	;$66 - ?
+;	.byte	$81	;$67 - SHIFT-inverse
+;	.byte	$52	;$68 - R
+;	.byte	$80	;$69 - (invalid)
+;	.byte	$45	;$6A - E
+;	.byte	$59	;$6B - Y
+;	.byte	$9F	;$6C - SHIFT-tab
+;	.byte	$54	;$6D - T
+;	.byte	$57	;$6E - W
+;	.byte	$51	;$6F - Q
+;
+;	.byte	$28	;$70 - (
+;	.byte	$80	;$71 - (invalid)
+;	.byte	$29	;$72 - )
+;	.byte	$27	;$73 - '
+;	.byte	$9C	;$74 - SHIFT-delete
+;	.byte	$40	;$75 - @
+;	.byte	$7D	;$76 - SHIFT-clear
+;	.byte	$9D	;$77 - SHIFT-insert
+;	.byte	$46	;$78 - F
+;	.byte	$48	;$79 - H
+;	.byte	$44	;$7A - D
+;	.byte	$80	;$7B - (invalid)
+;	.byte	$83	;$7C - SHIFT-CAPS
+;	.byte	$47	;$7D - G
+;	.byte	$53	;$7E - S
+;	.byte	$41	;$7F - A
+;
+;;	Control Characters
+;
+;	.byte	$0C	;$80 - CTRL-L
+;	.byte	$0A	;$81 - CTRL-J
+;	.byte	$7B	;$82 - CTRL-semicolon
+;	.byte	$80	;$83 - (invalid)
+;	.byte	$80	;$84 - (invalid)
+;	.byte	$0B	;$85 - CTRL-K
+;	.byte	$1E	;$86 - CTRL-left arrow
+;	.byte	$1F	;$87 - CTRL-right arrow
+;	.byte	$0F	;$88 - CTRL-O
+;	.byte	$80	;$89 - (invalid)
+;	.byte	$10	;$8A - CTRL-P
+;	.byte	$15	;$8B - CTRL-U
+;	.byte	$9B	;$8C - CTRL-return
+;	.byte	$09	;$8D - CTRL-I
+;	.byte	$1C	;$8E - CTRL-up arrow
+;	.byte	$1D	;$8F - CTRL-down arrow
+;
+;	.byte	$16	;$90 - CTRL-V
+;	.byte	$80	;$91 - (invalid)
+;	.byte	$03	;$92 - CTRL-C
+;	.byte	$89	;$93 - CTRL-F3
+;	.byte	$80	;$94 - (invalid)
+;	.byte	$02	;$95 - CTRL-B
+;	.byte	$18	;$96 - CTRL-X
+;	.byte	$1A	;$97 - CTRL-Z
+;	.byte	$80	;$98 - (invalid)
+;	.byte	$80	;$99 - (invalid)
+;	.byte	$85	;$9A - CTRL-3
+;	.byte	$80	;$9B - (invalid)
+;	.byte	$1B	;$9C - CTRL-escape
+;	.byte	$80	;$9D - (invalid)
+;	.byte	$FD	;$9E - CTRL-2
+;	.byte	$80	;$9F - (invalid)
+;
+;	.byte	$00	;$A0 - CTRL-comma
+;	.byte	$20	;$A1 - CTRL-space
+;	.byte	$60	;$A2 - CTRL-period
+;	.byte	$0E	;$A3 - CTRL-N
+;	.byte	$80	;$A4 - (invalid)
+;	.byte	$0D	;$A5 - CTRL-M
+;	.byte	$80	;$A6 - (invalid)
+;	.byte	$81	;$A7 - CTRL-inverse
+;	.byte	$12	;$A8 - CTRL-R
+;	.byte	$80	;$A9 - (invalid)
+;	.byte	$05	;$AA - CTRL-E
+;	.byte	$19	;$AB - CTRL-Y
+;	.byte	$9E	;$AC - CTRL-tab
+;	.byte	$14	;$AD - CTRL-T
+;	.byte	$17	;$AE - CTRL-W
+;	.byte	$11	;$AF - CTRL-Q
+;
+;	.byte	$80	;$B0 - (invalid)
+;	.byte	$80	;$B1 - (invalid)
+;	.byte	$80	;$B2 - (invalid)
+;	.byte	$80	;$B3 - (invalid)
+;	.byte	$FE	;$B4 - CTRL-delete
+;	.byte	$80	;$B5 - (invalid)
+;	.byte	$7D	;$B6 - CTRL-clear
+;	.byte	$FF	;$B7 - CTRL-insert
+;	.byte	$06	;$B8 - CTRL-F
+;	.byte	$08	;$B9 - CTRL-H
+;	.byte	$04	;$BA - CTRL-D
+;	.byte	$80	;$BB - (invalid)
+;	.byte	$84	;$BC - CTRL-CAPS
+;	.byte	$07	;$BD - CTRL-G
+;	.byte	$13	;$BE - CTRL-S
+;	.byte	$01	;$BF - CTRL-A
+	
+;;	TFKD - Table of Function Key Definitions
+;
+;	Entry n is the ATASCII equivalent of adjusted funct:
+;	code n.
+
+
+;TFKD:	.byte	$1C	;0 - F1 key
+;	.byte	$1D	;1 - F2 key
+;	.byte	$1E	;2 - F3 key
+;	.byte	$1F	;3 - F3 key
+;
+;	.byte	$8E	;4 - SHIFT-F1 key
+;	.byte	$8F	;5 - SHIFT-F2 key
+;	.byte	$90	;6 - SHIFT-F3 key
+;	.byte	$91	;7 - SHIFT-F4 key	
+
+;	SUBTTL	'Keyboard, Editor and Screen Handler, Part 1'
+;;	SPACE	4,10
+;;	TSMA - Table of Screen Memory Allocation
+;
+;	Entry n is the number of $40-byte blocks to allocate for
+;	graphics mode n.
+;
+;	NOTES
+;		Problem: For readability, this, and other t:
+;		this area, could be moved closer to the oth:
+;		the Keyboard, Editor and Screen Handler (ju:
+;		the EF6B patch).
+
+
+TSMA:
+;	.byte	24	;0
+;	.byte	16	;1
+;	.byte	10	;2
+;	.byte	10	;3
+;	.byte	16	;4
+;	.byte	28	;5
+;	.byte	52	;6
+;	.byte	100	;7
+;	.byte	196	;8
+;	.byte	196	;9
+;	.byte	196	;10
+;	.byte	196	;11
+;	.byte	28	;12
+;	.byte	16	;13
+;	.byte	100	;14
+;	.byte	196	;15
+;;	SPACE	4,10
+;;	TDLE - Table of Display List Entry Counts
+;
+;	Each entry is 2 bytes.
+
+
+TDLE:
+;	.byte	23,23	;0
+;	.byte	11,23	;1
+;	.byte	47,47	;2
+;	.byte	95,95	;3
+;	.byte	97,97	;4
+;	.byte	97,97	;5
+;	.byte	23,11	;6
+;	.byte	191,97	;7
+;	.byte	19,19	;8
+;	.byte	9,19	;9
+;	.byte	39,39	;10
+;	.byte	79,79	;11
+;	.byte	65,65	;12
+;	.byte	65,65	;13
+;	.byte	19,9	;14
+;	.byte	159,65	;15
+;	SPACE	4,10
+;;	TAGM - Table of ANTIC Graphics Modes
+;
+;	Entry n is the ANTIC graphics mode corresponding to internal
+;	graphics mode n.
+
+
+;TAGM:	.byte	$02	;internal 0 - 40x2x8 characters
+;	.byte	$06	;internal 1 - 20x5x8 characters
+;	.byte	$07	;internal 2 - 20x5x16 characters
+;	.byte	$08	;internal 3 - 40x4x8 graphics
+;	.byte	$09	;internal 4 - 80x2x4 graphics
+;	.byte	$0A	;internal 5 - 80x4x4 graphics
+;	.byte	$0B	;internal 6 - 160x2x2 graphics
+;	.byte	$0D	;internal 7 - 160x4x2 graphics
+;	.byte	$0F	;internal 8 - 320x2x1 graphics
+;	.byte	$0F	;internal 9 - 320x2x1 GTIA "lum" mode
+;	.byte	$0F	;internal 10 - 320x2x1 GTIA "color/lum" mode
+;	.byte	$0F	;internal 11 - 320x2x1 GTIA "color" mode
+;	.byte	$04	;internal 12 - 40x5x8 characters
+;	.byte	$05	;internal 13 - 40x5x16 characters
+;	.byte	$0C	;internal 14 - 160x2x1 graphics
+;	.byte	$0E	;internal 15 - 160x4x1 graphics
+;	SPACE	4,10
+;;	TDLV - Table of Display List Vulnerability
+;
+;	Entry n is non-zero if the display list for mode n cannot
+;	cross a page boundary.
+
+
+;TDLV:	.byte	0	;0
+;	.byte	0	;1
+;	.byte	0	;2
+;	.byte	0	;3
+;	.byte	0	;4
+;	.byte	0	;5
+;	.byte	0	;6
+;	.byte	1	;7
+;	.byte	1	;8
+;	.byte	1	;9
+;	.byte	1	;10
+;	.byte	1	;11
+;	.byte	0	;12
+;	.byte	0	;13
+;	.byte	1	;14
+;	.byte	1	;15
+;	SPACE	4,10
+;;	TLSC - Table of Left Shift Counts
+;
+;	Entry n is the NUMBER OF LEFT SHIFTS NEEDED TO MULTIPLY
+;	COLCRS BY # BYTES/ROW ((ROWCRS;5)/(2;;TLSC)) for mode n.
+
+
+;TLSC:	.byte	4
+;	.byte	3	;0
+;	.byte	2	;1
+;	.byte	2	;2
+;	.byte	1	;3
+;	.byte	1	;4
+;	.byte	2	;5
+;	.byte	2	;6
+;	.byte	3	;7
+;	.byte	3	;8
+;	.byte	3	;9
+;	.byte	3	;10
+;	.byte	3	;11
+;	.byte	3	;12
+;	.byte	3	;13
+;	.byte	2	;14
+;	.byte	3	;15
+;;	SPACE	4,10
+;;	TMCC - Table of Mode Column Counts
+;
+;	Entry n is the low column count for mode n.
+
+
+;TMCC:	.byte	< CCHARLINE	;0
+;	.byte	< 20		;1
+;	.byte	< 20		;2
+;	.byte	< 40		;3
+;	.byte	< 80		;4
+;	.byte	< 80		;5
+;	.byte	< 160		;6
+;	.byte	< 160		;7
+;	.byte	< 320		;8
+;	.byte	< 80		;9
+;	.byte	< 80		;10
+;	.byte	< 80		;11
+;	.byte	< 40		;12
+;	.byte	< 40		;13
+;	.byte	< 160		;14
+;	.byte	< 160		;15
+;	SPACE	4,10
+;;	TMRC - Table of Mode Row Counts
+;
+;	Entry n is the row count for mode n.
+
+
+;TMRC:	.byte	24	;0
+;	.byte	24	;1
+;	.byte	12	;2
+;	.byte	24	;3
+;	.byte	48	;4
+;	.byte	48	;5
+;	.byte	96	;6
+;	.byte	96	;7
+;	.byte	192	;8
+;	.byte	192	;9
+;	.byte	192	;10
+;	.byte	192	;11
+;	.byte	24	;12
+;	.byte	12	;13
+;	.byte	192	;14
+;	.byte	192	;15
+;	SPACE	4,10
+;;	TRSC - Table of Right Shift Counts
+;
+;	Entry n is HOW MANY RIGHT SHIFTS FOR HCRSR FOR PARTIAL
+;	BYTE MODES for mode n.
+
+
+;	.byte	0	;0
+;	.byte	0	;1
+;	.byte	0	;2
+;	.byte	2	;3
+;	.byte	3	;4
+;	.byte	2	;5
+;	.byte	3	;6
+;	.byte	2	;7
+;	.byte	3	;8
+;	.byte	1	;9
+;	.byte	1	;10
+;	.byte	1	;11
+;	.byte	0	;12
+;	.byte	0	;13
+;	.byte	3	;14
+;	.byte	2	;15
+;	SPACE	4,10
+;;	TDSM - Table of Display Masks
+;
+;	NOTES
+;		Includes TBTM - Table of Bit Masks.
+
+
+;TDSM:	.byte	$FF	;1
+;	.byte	$F0	;2
+;	.byte	$0F	;3
+;	.byte	$C0	;4
+;	.byte	$30	;5
+;	.byte	$0C	;6
+;	.byte	$03	;7
+
+TBTM:	.byte	$80	;8 (0)
+	.byte	$40	;9 (1)
+	.byte	$20	;10 (2)
+	.byte	$10	;11 (3)
+	.byte	$08	;12 (4)
+	.byte	$04	;13 (5)
+	.byte	$02	;14 (6)
+	.byte	$01	;15 (7)
+
+EDITOR:		.byte "E:",EOL
+KEYB:		.byte "K:",EOL
+
+HATABSROM:	
+		.byte	SCREDT	;editor device code
+		.word	EDITRV	;editor handler vector table
+	
+		.byte	DISPLY	;screen device code
+		.word	SCRENV	;screen handler vector table
+	
+		.byte	KBD	;keyboard device code
+		.word	KEYBDV	;keyboard handler vector table
+HATABSRS232:
+		.byte	RS232D	;RS232 device code
+		.word	0	;RS232 handler vector table
+
+	.IF PLATFORM <= 1
+		.byte 	DISK
+		.word	HANDTAB
+	.ENDIF
+	
+HATABSROM_end:
+		
+;;	EDITRV - Editor Handler Vector Table
+EDITRV:
+		.word	EOP-1	;perform editor OPEN
+		.word	ECL-1	;perform editor CLOSE
+		.word	EGB-1	;perform editor GET-BYTE
+		.word	EPB-1	;perform editor PUT-BYTE
+		.word	SST-1	;perform editor STATUS (screen STAT:
+		.word	ESP-1	;perform editor SPECIAL
+		JMP	SIN	;initialize editor (initialize scre:
+		.byte	0	;reserved
+
+
+;;	SCRENV - Screen Handler Vector Table
+SCRENV:
+		.word	SOP-1	;perform screen OPEN
+		.word	ECL-1	;perform screen CLOSE (editor CLOSE:
+		.word	SGB-1	;perform screen GET-BYTE
+		.word	SPB-1	;perform screen PUT-BYTE
+		.word	SST-1	;perform screen STATUS
+		.word	SSP-1	;perform screen SPECIAL
+		JMP	SIN	;initialize screen
+		.byte	0	;reserved
+
+;;	KEYBDV - Keyboard Handler Vector Table
+KEYBDV:
+		.word	SST-1	;perform keyboard OPEN (screen STAT:
+		.word	SST-1	;perform keyboard CLOSE (screen STA:
+		.word	KGB-1	;perform keyboard GET-BYTE
+		.word	ESP-1	;perform keyboard SPECIAL (editor S:
+		.word	SST-1	;perform keyboard STATUS (screen ST:
+		.word	ESP-1	;perform keyboard SPECIAL (editor S:
+		JMP	SIN	;initialize keyboard (initialize sc:
+		.byte	0	;reserved
+
+	.IF PLATFORM = 1
+crtset:		.byte 117	; H-Total		R0
+		.byte 80	; H-Disp		R1
+		.byte 91	; H-Sync-Pos		R2
+		.byte $08	; V/H-Sync-Width	R3
+		.byte 37	; V-Total	37	R4
+		.byte 3		; V-Adjust		R5
+		.byte 25	; V-Display 		R6
+		.byte 30	; V-Sync-Pos		R7
+		.byte 0		; Interlace + Skew	R8
+		.byte 7		; Scan-Lines		R9
+		.byte 7		; Cursor-Start		R10
+		.byte 7		; Cursor-End		R11
+		.byte (>SCRSTRT)/8  ; Screen-Start Hi   R12
+		.byte 0		; Screen-Start Lo	R13
+		.byte (>SCRSTRT)/8+$07, $a8; Cursor-Pos		R14,R15 H+L
+	.ENDIF
+;
+		.include "fat16.a65"

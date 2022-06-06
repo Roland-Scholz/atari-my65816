@@ -1,0 +1,2040 @@
+		.include "homebrew.inc"
+		
+ 	.IF PLATFORM <= 1
+		.include "myos.inc"
+		.include "fat16.inc"
+		.A8
+		.I8
+		.smart
+	.ENDIF		
+		.org	ROMSTART
+
+		jmp	kernel
+		jmp	chrin
+		jmp	chrout
+		jmp	print
+		jmp	printhex
+		jmp	getupper
+		jmp	gethex
+		jmp	getadr
+		jmp	newline
+		jmp	space
+		jmp	hexdownload
+		jmp	memdump
+		jmp	inputhex
+		jmp	changemem
+		jmp	fillmem
+		jmp	fill
+		jmp	(NMIVEC)
+		jmp	(IRQVEC)
+		jmp	(BRKVEC)
+		jmp	time
+		jmp	menu
+		jmp	disass
+		jmp	DISSone
+		jmp	RS232V
+		jmp	setaddress
+		jmp	memdump16
+		jsr	KGBIRQ
+		rtl
+		jmp	disass24
+		jmp	(COPVEC)
+
+;	
+;	
+;	
+	.IF 1=0
+compare:	sei	
+		lda	DEVICNO
+		pha	
+		stz	DEVICNO
+		ldx	#<MSGCOMP
+		ldy	#>MSGCOMP
+		jsr	print
+	
+compare1:	jsr	getbyte		; wait for leading ":"
+		cmp	#':'
+		bne	compare1
+	
+		stz	chksum
+	
+		jsr	gethex		; number of bytes in line
+		tax	
+		jsr	getadr		; addess in ptr
+		jsr	gethex		; record-type 0=data record
+		bne	compare3
+		
+		tay			; A = 0!
+compare2:	jsr	gethex		; read byte
+		cmp	(ptr),y		; compare at address
+		bne	compare4	; not equal -> error
+		iny
+		dex			; decement length
+		bne	compare2	; line not completely read
+	
+		jsr	gethex		; line finished
+		lda	chksum		; read checksum
+		beq	compare1	; checksum OK, next line
+compare4:	jsr	debug		; print debug
+		jmp	compare1	; read next line
+	
+compare3:	jsr	jtime		; read last checksum and return
+		ldx	#<MSGFINISH
+		ldy	#>MSGFINISH
+		jsr	print
+	
+		pla	
+		sta	DEVICNO
+		cli
+		rts
+		
+MSGCOMP:	.byte	"comparing...",EOL,0
+
+	.ENDIF
+	
+;
+;
+;
+hexdownload:	sei	
+		lda	DEVICNO
+		pha	
+		lda	#0
+		sta	DEVICNO
+		ldx	#<MSGDOWNL
+		ldy	#>MSGDOWNL
+		jsr	print
+	
+download:	jsr	getbyte		; wait for leading ":"
+		cmp	#':'
+		bne	download
+	
+		lda	#0
+		sta	chksum
+	
+		jsr	gethex		; number of bytes in line
+		tax	
+		jsr	getadr		; addess in ptr
+		jsr	gethex		; record-type 0=data record
+		bne	download1
+			
+		tay			; A = 0!
+download2:	jsr	gethex		; read byte
+		sta	(ptr),y		; store at address
+		iny	
+		dex			; decement length
+		bne	download2	; line not completely read
+	
+		jsr	gethex		; line finished
+		lda	chksum		; read checksum
+		beq	download	; checksum OK, next line
+		jsr	debug		; print debug
+		jmp	download	; read next line
+	
+download1:	jsr	jtime		; read last checksum and return
+		ldx	#<MSGFINISH
+		ldy	#>MSGFINISH
+		jsr	print
+	
+		pla	
+		sta	DEVICNO
+			
+;		jsr	chrin
+;		jsr	chrin
+
+	.IF PLATFORM = 0
+reset:		lda	#$80
+		sta	SOFTRESET
+		jmp	kernel
+;		stz	RESET
+	.ENDIF
+	
+	.IF PLATFORM = 1
+reset:		lda	SB+COMMA
+		jmp	kernel
+	.ENDIF	
+	
+	
+debug:		lda	ptr+1
+		jsr	printhex
+		lda	ptr
+		jsr	printhex
+		jsr	space
+		lda	chksum
+		jsr	printhex
+		jmp	newline
+
+MSGDOWNL:	.byte	"downloading...",EOL ,0
+MSGFINISH:	.byte	"... finished.", EOL ,0
+;
+;
+;
+getadr:		jsr	gethex
+		sta	ptr+1		
+		jsr	gethex
+		sta	ptr
+		rts	
+	
+gethex:		jsr	getnibble
+		asl	
+		asl	
+		asl	
+		asl	
+		sta	gethex_A
+		jsr	getnibble
+		ora	gethex_A
+		sta	gethex_A
+	
+		clc	
+		adc	chksum
+		sta	chksum
+		lda	gethex_A
+		rts	
+	
+getnibble:	jsr	getupper
+		sec	
+		sbc	#48
+		cmp	#10
+		bcc	getnibble1
+		sbc	#7
+getnibble1:	rts	
+	
+getupper:	jsr	getbyte
+		cmp	#97
+		bcs	getupper1
+		rts	
+getupper1:	cmp	#123
+		bcc	getupper2
+		rts	
+getupper2:	sbc	#31
+		rts	
+	
+getbyte:	jmp	chrin
+	
+newline:	pha	
+		lda	#EOL
+		bne	space1
+	
+space:		pha	
+		lda	#32
+	
+space1:		jsr	chrout
+		pla	
+		rts	
+	
+printhex:	pha	
+		pha	
+		lsr	
+		lsr	
+		lsr	
+		lsr	
+		jsr	printnibble
+		pla	
+		and	#15
+		jsr	printnibble
+		pla	
+		rts	
+	
+printnibble:	clc	
+		adc	#48
+		cmp	#58
+		bcc	printnibble1
+		adc	#6
+printnibble1:	jmp	chrout
+	
+print:		pha	
+		txa	
+		pha	
+		tya	
+		pha	
+		lda	ptr
+		pha	
+		lda	ptr+1
+		pha	
+	
+		stx	ptr
+		sty	ptr+1
+		ldy	#0
+print2:		lda	(ptr),y
+		beq	print1
+		jsr	chrout
+		inc	ptr	
+		bne	print2
+		inc	ptr+1
+		bne	print2
+		
+print1:		pla	
+		sta	ptr+1
+		pla	
+		sta	ptr
+		pla	
+		tay	
+		pla	
+		tax	
+		pla	
+		rts	
+	
+chrin:	
+		lda	DEVICNO
+		beq	uart0in
+			
+		txa	
+		pha	
+		tya	
+		pha	
+			
+		ldx	#$70
+		lda	#GETCHR
+		sta	ICCOM,x
+		jsr	CIOV
+;		sta	CIOCHR
+			
+		pla	
+		tay	
+		pla	
+		tax	
+		lda	CIOCHR
+		rts	
+
+		
+KEYBOARD:	.byte "K"	
+
+uart0in:
+	.IF PLATFORM=0
+chrin1:		lda	LSR0
+		and	#1
+		beq	chrin1
+		lda	RBR0
+	.ELSE	
+;		lda	#8
+;chrin1:		bit status6551
+;		beq	chrin1
+;		lda	data6551
+		LDA	#1	
+chrin1:		BIT	SB+STATA
+		BEQ	chrin1
+		LDA	SB+RECA
+	.ENDIF	
+		rts	
+	
+chrout:		pha	
+;		sta	charz
+		lda	DEVICNO
+		beq	uart0out
+		pla	
+		jmp	JPRINT
+		
+uart0out:
+	.IF PLATFORM=0
+chrout1:	lda	LSR0
+		and 	#64 
+		beq	chrout1
+		pla
+		sta	THR0
+;		pha		
+;		lda	#127
+;chrout2:	dea
+;		bne	chrout2
+;		pla
+	.ELSE	
+;		lda	#$10
+;chrout1:	bit	status6551
+;		beq	chrout1
+;		lda	charz
+;		sta	data6551
+		LDA	#4
+chrout1:	BIT	SB+STATA
+		BEQ	chrout1
+		PLA	
+		STA	SB+TRANSA
+	.ENDIF
+		rts
+		
+	.IF PLATFORM=99
+crtout:		tya	
+		pha	
+		ldy	#0
+		lda	charz
+		cmp	#EOL
+		beq	crtout1
+		sta	(chrpos),y
+		clc	
+		lda	chrcol
+		adc	#1
+		cmp	charsline
+		bcc	crtincx
+crtout1:	lda	chrrow
+		cmp	#24
+		bcc	crtNoScrol
+		
+crtNoScrol:	inc	chrrow
+		lda	#0
+		sta	chrcol
+		lda	chrrow
+		asl	
+		tay	
+		lda	Dcontrol
+		and	#1
+		bne	crtNoScrol80
+		lda	mul40,y
+		sta	chrpos
+		clc	
+		lda	mul40+1,y
+		adc	#>SCRSTRT
+crtNoScrol1:		
+		sta	chrpos+1
+		jmp	crtoutEnd
+	
+crtNoScrol80:	lda	mul80,y
+		sta	chrpos
+		clc	
+		lda	mul80+1,y
+		adc	#>SCRSTRT
+		jmp	crtNoScrol1
+			
+crtincx:	inc	chrpos
+		bne	crtincx1
+		inc	chrpos+1
+crtincx1:	inc	chrcol
+			
+crtoutEnd:	pla	
+		tay	
+		lda	charz
+		rts	
+			
+crtCls:		lda	#0
+		tax	
+crtCls1:	sta	SCRSTRT,x
+		sta	SCRSTRT+$100,x
+		sta	SCRSTRT+$200,x
+		sta	SCRSTRT+$300,x
+		inx	
+		bne	crtCls1
+	
+		lda	Dcontrol
+		and	#1
+		beq	crtCls2
+			
+		lda	#0
+crtCls3:	sta	SCRSTRT+$400,x
+		sta	SCRSTRT+$500,x
+		sta	SCRSTRT+$600,x
+		sta	SCRSTRT+$700,x
+		inx	
+		bne	crtCls3
+	
+crtCls2:	lda	#0
+		sta	chrcol
+		sta	chrrow
+		sta	chrpos
+		lda	#>SCRSTRT
+		sta	chrpos+1
+		rts
+
+mul40:		.word	0*40,1*40,2*40,3*40,4*40,5*40,6*40,7*40	
+		.word	8*40,9*40,10*40,11*40,12*40,13*40,14*40,15*40
+		.word	16*40,17*40,18*40,19*40,20*40,21*40,22*40,23*40	
+		.word	24*40
+	
+mul80:		.word	0*80,1*80,2*80,3*80,4*80,5*80,6*80,7*80	
+		.word	8*80,9*80,10*80,11*80,12*80,13*80,14*80,15*80
+		.word	16*80,17*80,18*80,19*80,20*80,21*80,22*80,23*80	
+		.word	24*80
+	.ENDIF
+	
+;------------------------------------------------------------------
+;
+;------------------------------------------------------------------
+mybrk:
+		REP	#M+IX
+		
+		PHA
+		PHX
+		PHY		
+		PHB			; 1-byte, SAVE DATA BANK	
+		PHD			; 2-byte, DIRECT PAGE
+
+		PEA	DPAGE		; SWITCH TO APPLICATION
+		PLD			; DIRECT PAGE
+		
+					;STACK: DIRECT L 	1	$1f0
+					;	DIRECT H	2	$1f1
+					;	DATA BANK	3
+					;	Y L		4
+					;	Y H		5
+					;	X L		6
+					;	X H		7
+					;	A L		8
+					;	A H		9
+					;	PREGS		10	pushed by BRK intruction
+					;	PC L		11	pushed by BRK intruction
+					;	PC H		12	pushed by BRK intruction
+					;	PROGRAM BANK	13	pushed by BRK intruction
+					;	RETURN-1 L 	14	e.g. pushed by JSR
+					;	RETURN-H H 	15
+
+		phk			; data bank = program bank
+		plb
+		lda	11,S
+		;dea	
+		;dea	
+		sta	11,S
+		
+		sta	PCREG
+		sta	OPCREG		
+		
+		sep	#M+IX
+		stz	DEVICNO
+		lda	#$41
+		jsr	jchrout
+		
+		rep	#M+IX		
+		pld
+		plb
+		ply
+		plx
+		pla
+		rti
+
+		.a8
+		.i8
+		
+		
+copproc:
+		rep	#M+IX
+		pha
+		phx
+		phy
+		phb
+		phd
+						
+		pea	0
+		pld
+		phk
+		plb		
+
+		sep	#M
+		stz	DEVICNO
+		
+		lda	#'A'
+		jsr	printChar
+		lda	9,s
+		jsr	jprinthex
+		lda	8,s
+		jsr	jprinthex
+
+		lda	#'X'
+		jsr	printChar
+		lda	7,s
+		jsr	jprinthex
+		lda	6,s
+		jsr	jprinthex
+		
+		lda	#'Y'
+		jsr	printChar
+		lda	5,s
+		jsr	jprinthex
+		lda	4,s
+		jsr	jprinthex
+		
+		lda	#'S'
+		jsr	printChar
+		lda	#'='
+		rep	#M
+		tsc
+		clc
+		adc	#13
+		sep	#M
+		xba
+		jsr	jprinthex
+		xba
+		jsr	jprinthex
+
+		lda	#'D'
+		jsr	printChar
+		lda	2,s
+		jsr	jprinthex
+		lda	1,s
+		jsr	jprinthex
+		
+		lda	#'B'
+		jsr	printChar
+		lda	3,s
+		jsr	jprinthex
+		
+		lda	#'P'
+		jsr	printChar
+		lda	10,s
+		jsr	jprinthex
+		
+		jsr	jspace
+		lda	13,s
+		jsr	jprinthex
+		lda	#'/'
+		jsr	jchrout
+		lda	12,s
+		jsr	jprinthex
+		lda	11,s
+		jsr	jprinthex
+
+		jsr	jspace
+				
+		ldy	#0
+		lda	13,s
+		pha
+		plb
+		lda	(11,s),y
+
+		jsr	jprinthex
+		
+		jsr	jnewline
+
+		inc	DEVICNO
+		rep	#M+IX
+		pld
+		plb
+		ply
+		plx
+		pla
+		rti
+
+printChar:	.A8
+		jsr	jspace
+		jsr	jchrout
+		lda	#'='
+		jmp	jchrout		
+;
+;
+;
+kernel:
+		sei			;interrupt disable
+		clc
+		xce			;switch to native mode
+		
+		rep	#M+IX+DECIMAL_FLAG+CARRY	;accu + index = 16bit
+		.a16
+		.I16
+
+;		sec			;emulation mode
+;		xce			;StackHi = $01, M=1, I=1, D=0
+			
+		lda	#$01FF
+		tcs			;Stack = $01FF
+		lda	#$0000
+		tcd			;Direct = $0000
+		
+		phk			;push Program-bank
+		plb			;load in Data-Bank
+		
+		tax			;x = 0
+		tay
+		iny			;y = 1
+		
+		stz	$0		;clear $0000 - $07ff
+		lda	#$700-2
+		mvn	$00,$00		;data bank = 0!
+	
+		lda	#rasterProc
+		sta	RASVEC
+			
+		lda	#irqproc	;register IRQ-procedure
+		sta	IRQVEC
+
+		lda	#NBRKIN		;register BRK-procedure
+;		lda	#mybrk		;register BRK-procedure
+		sta	BRKVEC
+		
+		lda	#copproc
+		sta	COPVEC
+		
+		lda	#CCONST5MS
+		sta	CONST5MS
+		sta	TIMERLO
+
+		sep	#M+IX		;Accu+Index = 8bit
+		.a8
+		.i8		
+		
+		lda	#1
+		sta	IER1		;enable Mouse interrupt
+		sta	TIMERST		;enable Timer interrupt
+		
+		
+		
+	.IF PLATFORM = 1
+		stz	MEMCNTL
+	.ENDIF
+		
+		jsr	initacia
+	
+;		tsc
+;		xba
+;		jsr printhex
+;		xba
+;		jsr printhex
+
+		
+;loop:		lda	#'A'
+;		jsr	chrout
+;		jsr	time
+;		jmp	loop
+			
+		lda	#$4C		;jmp(...)
+		sta	jmpind
+			
+		lda	#$54		;MVN
+		sta	MOVENEG
+		lda	#$60
+		sta	MOVERTS		;RTS
+		lda	#$00
+		sta	memptr		;bank = 1
+		lda	#$00
+		sta	memptr+1
+		lda	#$01
+		sta	memptr+2
+		
+		lda	#$C0
+		sta	$FFFC00
+		lda	#$FF
+		sta	$FFFDFE
+		
+;		sta	BRKNOT
+;		sta	BRKTAK
+;		lda	#3
+;		sta	BRKOFF
+;		lda	#<IRQGETC
+;		sta	BRKJMP0
+;		lda	#>IRQGETC
+;		sta	BRKJMP0+1
+;		lda	#<BRATAKEN
+;		sta	BRKJMP1
+;		lda	#>BRATAKEN
+;		sta	BRKJMP1+1		
+		
+	.IF PLATFORM <= 1
+		sta	IRQPS2S		;no key available
+		lda	PS2DATA		;reset key input
+		
+		
+;key1:		lda	PS2STATUS	;key available?
+;		bne	key1		;Bit 0 = 0?, no =>
+;		lda	PS2DATA
+;		sta	PS2DATA
+;		jsr	printhex
+;		cmp	#$E1
+;		bne	key1
+	.ENDIF
+	
+		
+	.IF PLATFORM = 99
+		jsr	JMYOSSTART
+;		inc	DEVICNO
+		jmp	menustart
+	.ELSE	
+		lda	JMYOSSTART
+		cmp	#$4C		;JMP instructr?
+		bne	menustart
+		;bra	menustart
+		jsr	JMYOSSTART
+	.ENDIF	
+
+		ldx	#$70	;open channel 01 
+		lda	#OPEN	;with KEYBOARD
+		sta	ICCOM,x
+		lda	#<KEYBOARD
+		sta	ICBAL,x
+		lda	#>KEYBOARD
+		sta	ICBAH,x
+		lda	#4
+		sta	ICAX1,x
+		lda	#0
+		sta	ICAX2,x
+		sta	ICBLL,x
+		sta	ICBLH,x
+		jsr	CIOV
+	
+		inc	DEVICNO
+		
+		cli				;enable IRQ
+
+		bra	menu			;accu != 0
+	
+;		jsr	jtime
+			
+menustart:	ldx	#3
+		lda	#EOL
+@loop:		jsr	chrout
+		dex	
+		bne	@loop
+	
+menu:		ldx	#<MSGSTART
+		ldy	#>MSGSTART
+		jsr	print
+		
+menuadr:	jsr	newline
+		lda	memptr+2
+		jsr	printhex
+		lda	#':'
+		jsr	jchrout
+		lda	memptr+1
+		jsr	printhex
+		lda	memptr
+		jsr	printhex
+		lda	#'>'
+		jsr	chrout
+		jsr	space
+	
+menuloop:	jsr	getupper
+;		stz	DEVICNO
+;		jsr	jprinthex
+;		inc	DEVICNO
+		
+		ldx	#menuvec-menukey-1
+			
+menuloop1:	cmp	menukey,x
+		beq	menufound
+		dex	
+		bpl	menuloop1
+		jmp	menuadr
+menufound:	txa	
+		asl	
+		tax	
+		jsr	(menuvec,x)
+		jmp	menuadr
+	
+gotoadr:	lda 	#$22		;JSL opcode
+		sta	JSLOP
+		lda	#$60
+		sta	JSLRTS
+		
+		lda	memptr
+		sta	JSLADR
+		lda	memptr+1
+		sta	JSLADR+1
+		lda	memptr+2
+		sta	JSLADR+2
+
+		;wdm	6
+		jmp	JSLOP	
+	
+prthelp:	pla	
+		pla	
+		jmp	menu
+
+menukey:	.byte	"?BCDFGKLMNSTV"
+;		.byte	"T"
+	.IF PLATFORM <= 1
+		.byte	"O"
+	.ENDIF
+menuvec:
+		.word	prthelp
+		.word	setdatabank
+		.word	changemem
+		.word	hexdownload
+		.word	fillmem
+		.word	gotoadr
+		.word	disass16
+		.word	disass8
+		.word	memdump
+		.word	setaddress
+		.word	setbreak
+		.word	copymem
+		.word	VTL02C
+;		.word	compare
+	.IF PLATFORM <= 1
+		.word	DUPINIT
+	.ENDIF
+	
+MSGSTART:	.byte	CLS
+		.byte	"*** 6502 Homebrew by R. Scholz", EOL, EOL
+		.byte	"? - This help list", EOL
+		.byte	"B - Set data bank", EOL
+		.byte	"C - Change byte", EOL
+		.byte	"D - Download Intel-Hex file", EOL
+		.byte	"F - Fill memory", EOL
+		.byte	"G - Goto address", EOL
+		.byte	"K - Disassemble 16", EOL
+		.byte	"L - Disassemble 8", EOL
+		.byte	"M - Memory dump", EOL
+		.byte	"N - New address", EOL
+	.IF PLATFORM <= 1
+		.byte	"O - DOS", EOL
+	.ENDIF
+		.byte 	"S - Set breakpoint", EOL
+		.byte	"T - Transfer memory", EOL
+		.byte	"V - VTL-02c", EOL
+	;	.byte	"T - Compare Hexdownload",EOL
+		.byte	0
+;
+;
+;
+setbreak:	jsr	setaddress
+		cmp	#'x'
+		beq	setbreak9
+		ldy	#0
+		lda	[memptr],y	; read opcode at address
+		sta	NCODE		; save in opcode
+		tya			; store 0 into
+		sta	[memptr],y	; address (BRK-opcode)
+setbreak9:	rts
+;
+;
+;
+
+initacia:	jmp	SERINIT
+;		lda SB+COMMA		;for test with 2nd kernel
+;		rts
+		
+setaddress:
+		ldx	#<MSGADDR
+		ldy	#>MSGADDR
+		jsr	print
+		jmp	enteradr
+
+MSGADDR:	.byte	"address: ",0
+
+;
+;
+;
+setdatabank:	lda	memptr+2
+		jsr	jprinthex
+		lda	#':'
+		jsr	chrout
+		jsr	jspace
+		jsr	inputhex
+		sta	memptr+2
+		rts
+	
+memdump:
+;		lda	DEVICNO
+;		beq	memdump6
+;		lda	#CLS
+;		jsr	chrout
+			
+memdump6:	jsr	newline
+		ldx	#16
+memdump3:	jsr	memdump16
+		dex	
+		bne	memdump3
+		rts	
+			
+memdump16:	lda	memptr+2
+		jsr	printhex
+		lda	#':'
+		jsr	chrout
+			
+		lda	memptr+1
+		jsr	printhex
+		lda	memptr
+		jsr	printhex
+			
+		jsr	space
+	
+		ldy	#0
+memdump1:	cpy 	#8
+		bne	memdump7
+		jsr 	space
+		jsr	space
+memdump7:	lda	[memptr],y
+		jsr	printhex
+		jsr	space
+		iny	
+		cpy	#16
+		bne	memdump1
+			
+		jsr	space
+		lda	#'|'
+		jsr	chrout
+	
+		ldy	#0
+memdump5:	lda	[memptr],y
+		cmp	#TABU		; if >= TABU
+		bcs	memdump4	; print space
+		cmp	#32		; if < space, print space
+		bcs	memdump2
+memdump4:	lda	#' '
+memdump2:	jsr	chrout
+		iny	
+		cpy	#16
+		bne	memdump5
+	
+		lda	#'|'
+		jsr	chrout
+	
+		clc	
+		tya	
+		adc	memptr
+		sta	memptr
+		bcc	memdump8
+		inc	memptr+1
+		bne	memdump8
+		inc	memptr+2
+memdump8:	jmp	newline
+
+
+copymem:	ldx	#<msgcopy1
+		ldy	#>msgcopy1
+		jsr	jprint
+	
+		jsr	enteradr
+		cmp	#'x'
+		beq	copyend
+		
+		ldx	#<msgfill2
+		ldy	#>msgfill2
+		jsr	jprint
+	
+		jsr	inputhex
+		sta	ptr+1
+		jsr	inputhex
+		sta	ptr
+		
+		ldx	#<msgcopy2
+		ldy	#>msgcopy2
+		jsr	jprint
+
+		jsr	inputhex
+		sta	TEMP+1
+		jsr	inputhex
+		sta	TEMP
+		
+		ldx	memptr+2
+		stx	MOVEBNK
+		stx	MOVEBNK+1
+		
+		rep	#M+IX
+		sec
+		lda	ptr
+		sbc	memptr
+		bcc	copymem2
+			
+		ldx	memptr
+		ldy	TEMP	
+		phb	
+		jsr	MOVENEG
+		plb	
+			
+copymem2:	sep	#M+IX		
+copyend:	rts
+
+;
+; Routine to fill memory with prior user interaction
+; fills from: memptr to: ptr
+; 
+fillmem:	
+		ldx	#<msgfill1
+		ldy	#>msgfill1
+		jsr	jprint
+	
+		jsr	enteradr
+		cmp	#'x'
+		beq	fillend
+	
+		ldx	#<msgfill2
+		ldy	#>msgfill2
+		jsr	jprint
+	
+		jsr	inputhex
+		sta	ptr+1
+		jsr	inputhex
+		sta	ptr
+	
+		ldx	#<msgfill3
+		ldy	#>msgfill3
+		jsr	jprint
+	
+		jsr	inputhex
+		
+fill:		sta	[memptr]
+		ldx	memptr+2
+		stx	MOVEBNK
+		stx	MOVEBNK+1
+			
+		rep	#M+IX+CARRY
+		lda	ptr
+		sbc	memptr
+		bcc	fillmem2
+			
+		ldx	memptr
+		txy	
+		iny	
+		phb	
+		jsr	MOVENEG
+		plb	
+			
+fillmem2:	sep	#M+IX
+fillend:	rts
+		
+msgfill1:	.byte	"fill from: ", 0
+msgfill2:	.byte	" to ", 0
+msgfill3:	.byte	" with: ",0
+
+msgcopy1:	.byte	"copy from: ", 0
+msgcopy2:	.byte	" dest: ", 0
+
+;
+;
+;		
+changemem:	lda	[memptr]
+		jsr	jprinthex
+		lda	#':'
+		jsr	chrout
+		jsr	jspace
+		jsr	inputhex
+		sta	[memptr]
+		rts
+		
+;
+;
+;
+inputhex:	jsr	inputnibble
+		asl	
+		asl	
+		asl	
+		asl	
+		sta	gethex_A
+		jsr	inputnibble
+		;clc	
+		ora	gethex_A
+		sta	gethex_A
+		rts	
+	
+inputnibble:	jsr	jgetupper
+		jsr	chrout
+		sec	
+		sbc	#48
+		cmp	#10
+		bcc	inputnibble1
+		sbc	#7
+inputnibble1:	rts
+
+
+
+time:		pha
+		txa
+		pha
+		tya
+		pha
+
+		ldy	#0
+		ldx	#0
+
+time1:		dex
+		bne	time1
+		dey
+		bne	time1
+	
+		pla
+		tay
+		pla
+		tax
+		pla
+
+		rts
+
+;43 entries
+COLTAB:
+		.word 0
+		.word 1
+		.word 2
+		.word 3
+		.word 4
+		.word 5
+		.word 6
+		.word 7
+		.word 15
+		.word 23
+		.word 31
+		.word 39
+		.word 47
+		.word 55
+		.word 63
+		.word 62
+		.word 61
+		.word 60
+		.word 59
+		.word 58
+		.word 57
+		.word 56
+		.word 120
+		.word 184
+		.word 248
+		.word 312
+		.word 376
+		.word 440
+		.word 504
+		.word 496
+		.word 488
+		.word 480
+		.word 472
+		.word 464
+		.word 456
+		.word 448
+		.word 449
+		.word 450
+		.word 451
+		.word 452
+		.word 453
+		.word 454
+		.word 455
+		
+		
+irqproc:	rep	#M+IX		;M=I=0=16bit
+
+		pha
+		phx
+		phy
+		
+		phb
+		phd
+		
+		lda	#0
+		tcd
+		
+		sep	#M+IX		;M=I=1=8bit
+
+		pha
+		plb			;data bank = 0
+	
+		lda	dispStatus	;raster interrupt occurred?
+;		bpl	irqps2		;bit7=0? => no
+		bra	irqps2		;bit7=0? => no
+
+		sta	dispStatus	;clear status
+		rep	#M+IX		;16-bit
+		lda 	#irqps2		;load irqps2-1
+		dea
+		pha			;push to stack for RTS
+		jmp	(RASVEC)
+
+	.if 0=1
+		
+		lda	vcountLo
+		clc
+		adc 	#1
+		cmp	#200
+		bcc	rasterIrq1
+		lda	#0
+rasterIrq1:	sta	rasterLo
+;		sta	colorBorderLo
+		sta	colorBackgroundLo
+		
+		sep	#M+IX		;8-bit
+		bra	irqex
+	.ENDIF
+	
+	.if 1=1
+rasterProc:
+		lda	COLCNT
+		ina
+		cmp	#43
+		bcc	i2
+		lda	#0
+i2:		sta	COLCNT
+		asl
+		tax
+		lda	COLTAB,x 
+		sta	colorBorderLo
+		;sta	colorBackgroundLo
+		clc
+		lda	rasterLo
+		adc	#2
+		cmp	#256+46
+		bcc	i1
+		
+;		lda	COLCNT+2
+;		ina
+;		cmp	#43
+;		bcc	i3
+		lda	#0
+;i3:		sta	COLCNT+2
+		sta	COLCNT
+		lda	#29
+i1:		sta	rasterLo
+		rts
+		
+	.ENDIF
+	
+irqps2:			
+		sep	#M+IX
+		lda	PS2STATUS	;key available?
+		bne	irqtimer	;Bit 0 = 0?, no =>
+		jsr	KGBIRQ
+
+		
+irqtimer:	lda	TIMERST
+
+;		bpl	irqmouse
+;		bra	irqmouse
+		
+;		lda	colorBorderLo
+;		eor	#$ff
+;		sta	colorBorderLo
+
+;		lda	#$20
+;		sta	TIMERLO
+;		lda	#$A2
+;		sta	TIMERHI
+;		lda	#3
+;		sta	TIMERST
+	
+;byte	d6	d5	d4	d3	d2	d1	d0
+;1	1	lb	rb	dy7	dy6	dx7	dx6
+;2	0	dx5	dx4	dx3	dx2	dx1	dx0
+;3	0	dy5	dy4	dy3	dy2	dy1	dy0
+	
+irqmouse:	lda	IIR1
+		and	#1
+		beq	irqmouse1
+		jmp	irqex		;1 = no int pending
+irqmouse1:
+		lda	RBR1
+;		jsr	printhex
+		bit	#$40		;1 = test start of protocol
+		beq	irqmousedx	
+		sta	MDXDY
+		stz	MSTATE
+		bra	irqex
+
+irqmousedx:	
+		and	#$3f
+		
+		ldx	MSTATE
+		bne	irqmousedy
+		inc	MSTATE
+		
+		stz	MPOSX+1
+		
+		clc
+		adc	MPOSX
+		sta	MPOSX
+		lda	MDXDY
+		ror
+		ror
+		sta	MDXDY
+		ror
+		and	#%11000000
+		clc
+		adc	MPOSX
+		bpl	irqmousedx1
+		lda	#0
+irqmousedx1:	cmp	#80
+		bcc	irqmousedx2
+		lda	#79
+irqmousedx2:	sta	MPOSX
+		bra	irqex
+		
+irqmousedy:	
+		cpx	#1
+		bne	irqex
+		inc	MSTATE
+		
+		stz	MPOSY+1
+		
+		clc
+		adc	MPOSY
+		sta	MPOSY
+		lda	MDXDY
+		ror
+		ror
+		sta	MDXDY
+		ror
+		and	#%11000000
+		clc
+		adc	MPOSY
+		bpl	irqmousedy1
+		lda	#0
+irqmousedy1:	cmp	#25
+		bcc	irqmousedy2
+		lda	#24
+irqmousedy2:	sta	MPOSY
+
+		;lda	MPOSY
+		;jsr	printhex
+		
+		rep	#M
+		lda	MPOSY
+		asl			;*2
+		asl			;*4
+		adc	MPOSY		;*5
+		asl			;*10
+		asl			;*20
+		asl			;*40
+		asl			;*80
+		adc	MPOSX
+		sta	cursorLo
+		sep	#M
+		
+		bra	irqex
+
+irqex:		rep	#$30		;M=I=0=16bit
+		
+		pld
+		plb
+		
+		ply
+		plx
+		pla
+
+brkproc:	rti
+	
+KGBIRQ:	
+		.A8
+		.I8
+
+;		tya
+;		pha
+		
+;		ldx	#40
+;KGB6:		dex		;wait some time for parity and stop bit to arrive
+;		bne	KGB6
+
+;		lda	skipone
+;		jsr	printhex
+;		lda	SHFLOK
+;		jsr	printhex
+;		lda	extended
+;		jsr	printhex
+;		lda	ALTACT
+;		jsr	printhex
+				
+		ldx	#0
+		lda	PS2DATA
+;		sta	PS2DATA		;reset PS2
+;		cmp	#$E1		;pause/break?
+;		bne	KGBIRQ1		;no
+;		
+;		tsx
+;		clc
+;		lda 	$105,X
+;		sta 	memptr
+;		adc	#2
+;		sta	$105,x
+;		lda 	$106,X
+;		sta	memptr+1
+;		adc	#0
+;		sta	$106,x
+;
+;		ldy	#0
+;		lda	(memptr),y
+;		sta	opcode
+;		jmp	BRKENTRY1
+		
+KGBIRQ1:	ldy	skipone
+		stx	SUPERF	;X = 0
+
+		cmp	#$E1	;Pause key?
+		bne  	KGB0
+		jmp	reset
+		
+KGB0:		cmp	#$F0	;break scancode?
+		bne	KGB5	;no
+		sta	skipone	;skipone <> 0 denotes 
+		jmp	KGBEX	;ignore next key
+		
+KGB5:		cmp	#CLSHIFT	;process left-shift
+		beq	KGB9		;yes =>
+		cmp	#CRSHIFT	;process right-shift
+		bne	KGB8		;no =>		
+KGB9:		sty	SHFLOK		;Y=skipone, shift = 0 denotes shift pressed!
+
+KGB8:		cmp	#CLSTRG
+		bne	KGB2
+		sty	CLSFLG		;Y=skipone, CLSFLG = 0 denotes CLS pressed!
+
+KGB2:		cmp	#$e0		;extended scancode
+		bne	KGB7		;no =>
+		sta	extended
+		beq	KGBEX
+		
+KGB7:		ldy	skipone		;make-key?
+		beq	KGB3		;yes =>
+
+;		ldx #0			;hence break-key, clear break
+		stx	skipone		;X already 0
+		stx	extended
+		stx	ALTACT
+		bne	KGBEX		;read next key
+		
+KGB3:		cmp	#CCAPS		;CAPS-LOCK?
+		beq	KGBCAPS		;yes =>
+
+;
+; special keys have been processed, now tranform scancode into ASCII
+;
+		ldy	extended
+		bne	KGBEXTEND
+
+		ldy	SHFLOK		;shift = 0, upper case
+		beq	KGBUPPER
+		
+		ldy	ALTACT		;ALTGR active?
+		bne	KGBALTGR	;yes, handle ALTGR-keys
+		
+		tay			;read ASCII-char lower-case
+		lda	CHARTABLE_NOSHIFT,y
+KGB4:		beq	KGBEX		;if undefined, read next key
+		ldx	CLSFLG		;STRG-pressed?
+		bne	KGBKEYEX	;no, exit
+		sec
+		sbc 	#('a'-1)
+		bcs	KGBKEYEX
+		
+KGBUPPER:	tay			;read ASCII-char upper-case
+		lda	CHARTABLE_SHIFT,y
+		jmp	KGB4
+			
+KGBCAPS:	lda	SHFLOK		;shift = 0?
+		beq	KGBCAPS1
+		stx	SHFLOK		;X = 0
+		bne	KGBEX		;read next key
+		
+KGBCAPS1:	inc	SHFLOK		;shift := 1
+		bne	KGBEX		;read next key
+
+KGBEXTEND:	cmp	#ALTGR
+		bne	KGBEXTEND2
+		sta	ALTACT
+		stx	extended	;X = 0
+		beq	KGBEX
+KGBEXTEND2:	ldy	#(EXT_TABLE - EXT_TABLE_IND - 1)
+KGBEXTEND1:	cmp	EXT_TABLE_IND,y
+		beq	KGBEXTFND
+		dey
+		bpl	KGBEXTEND1
+		bmi	KGBEX
+		
+KGBEXTFND:	lda	EXT_TABLE,y
+		cmp	#CCHM		;cursor home?
+		bne	KGBEXTFND1	;no
+		ldx	CLSFLG		;STRG pressed?
+		bne	KGBEXTFND1	;no
+		lda	#CLS		;clear screen
+		bne	KGBKEYEX
+
+KGBEXTFND1:	ldx	EXT_TABLE_SUPERF,y
+		stx	SUPERF
+
+KGBKEYEX:	sta	IRQPS2D
+		lda	#0
+		sta	IRQPS2S
+KGBEX:		rts
+		
+KGBALTGR:	ldx	#(ALTGR_TABLE - ALTGR_TABLE_IND - 1)
+KGBALTGR1:	cmp	ALTGR_TABLE_IND,x
+		bne	KGBALTGR2
+		lda	ALTGR_TABLE,x
+		bne	KGBKEYEX	;never 0			
+KGBALTGR2:	dex
+		bpl	KGBALTGR1
+		bmi	KGBEX
+		
+		
+		
+;BRKENTRY:	tya
+;		pha
+;		tsx
+;
+;BRKENTRY1:	lda	DEVICNO
+;		sta	DEVICS
+;		lda	#0
+;		sta	DEVICNO
+;		
+;IRQBRK:		JSR	IRQDUMP
+;			
+;		LDA	opcode
+;		LDY	#0
+;		STA	(memptr),Y
+;		
+;		JSR	jdisone
+;			
+;		LDA	opcode
+;		CMP	#$4C		;jmp
+;		BEQ	IRQJMP
+;		CMP	#$6C		;jmp ( )
+;		BEQ	IRQJMPI
+;		CMP	#$20		;jsr
+;		BEQ	IRQJMP
+;		CMP	#$40
+;		BEQ	IRQRTI
+;		CMP	#$60
+;		BEQ	IRQRTS
+;		AND	#$0F
+;		BEQ	IRQREL		; branches
+;		
+;		JMP	IRQGETC
+;		
+;IRQJMP:		LDY 	#1
+;		LDA 	(dbugptro),y
+;		STA 	memptr
+;		INY	
+;		LDA 	(dbugptro),y
+;		STA 	memptr+1
+;		JMP 	IRQGETC
+;	
+;IRQRTI:		TSX	
+;		LDA 	$102,X
+;		STA 	memptr
+;		LDA 	$103,X
+;		STA 	memptr+1
+;		JMP 	IRQGETC
+;	
+;IRQRTS:		TSX	
+;		CLC	
+;		LDA 	$107,X
+;		ADC 	#1
+;		STA 	memptr
+;		LDA 	$108,X
+;		ADC 	#0
+;		STA 	memptr+1
+;		JMP 	IRQGETC
+;	
+;IRQJMPI:	LDY 	#1
+;		LDA 	(dbugptro),Y
+;		STA 	dbugptrx
+;		INY	
+;		LDA 	(dbugptro),Y
+;		STA 	dbugptrx+1
+;		LDY 	#0
+;		LDA 	(dbugptrx),Y
+;		STA 	memptr
+;		INY	
+;		LDA 	(dbugptrx),Y
+;		STA 	memptr+1
+;		JMP 	IRQGETC
+;	
+;IRQREL:		LDA 	opcode
+;		STA 	BRKBRA
+;		LDA 	flags
+;		PHA	
+;		PLP
+;		JMP	BRKBRA
+;	
+;BRATAKEN:	LDY 	#1
+;		LDA 	(dbugptro),Y
+;		BMI 	IRQRELNEG
+;		CLC	
+;		ADC 	memptr
+;		STA 	memptr
+;		LDA 	memptr+1
+;		ADC 	#0
+;		STA 	memptr+1
+;		JMP 	IRQGETC
+;		
+;IRQRELNEG:	CLC	
+;		ADC 	memptr
+;		STA 	memptr
+;		LDA 	memptr+1
+;		SBC 	#0
+;		STA 	memptr+1
+;		JMP 	IRQGETC
+;		
+;IRQGETC:	lda 	#'>'
+;		jsr 	jchrout
+;		jsr 	jchrin
+;		jsr 	jchrout
+;		tay
+;		cpy	#'r'
+;		bne	IRQGETCR
+;		lda	SB+COMMA
+;		jmp	jkernel
+;
+;IRQGETCR:	cpy	#'x'
+;		beq	IRQEND
+;		cpy	#' '
+;		bne	irqgetcm
+;
+;IRQREPEAT:	tsx
+;		clc
+;		lda	$105,x
+;		adc	#2
+;		sta	$105,x
+;		bcc	irqgetc2
+;		inc	$106,x
+;irqgetc2:	jmp	IRQBRK
+;		
+;irqgetcm:	cpy	#'m'
+;		beq	irqgetd
+;		cpy	#'d'
+;		beq	irqgetd
+;		cpy	#'1'
+;		bcc	irqgets
+;		cpy	#'4'
+;		bcs	irqgets
+;
+;		jsr	setmonitor
+;		jmp	IRQREPEAT
+;		
+;irqgetd:	jsr	enteradr
+;		cmp	#'x'
+;		beq	IRQGETC	
+;
+;		cpy	#'d'
+;		beq	irqgetd1
+;		cpy	#'m'
+;		bne	irqgets
+;		jsr	memdumpx
+;		jmp	IRQREPEAT
+;		
+;irqgetd1:	lda	opcode
+;		pha
+;		jsr	jdisass
+;		pla
+;		sta	opcode
+;		jmp	IRQREPEAT
+;
+;irqgets:	cpy	#'s'			; skip jsr
+;		bne	irqSetBreak
+;	
+;		lda 	opcode
+;		cmp 	#$20
+;		bne 	irqSetBreak
+;		
+;		lda 	dbugptro
+;		adc	#2
+;		sta	memptr
+;		lda	dbugptro+1
+;		adc	#0
+;		sta	memptr+1
+;
+;irqSetBreak:
+;		LDY 	#0
+;		LDA 	(memptr),y
+;		STA 	opcode
+;		TYA	
+;		STA 	(memptr),y
+;	
+;IRQEND:		lda	DEVICS
+;		sta	DEVICNO
+;		PLA
+;		TAY
+;		jmp	irqex
+;		
+;		
+;IRQDUMP:	LDA 	#<BRKSTR	;print headline regs+flags
+;		LDY 	#>BRKSTR
+;		JSR 	PTEXT
+;		
+;		SEC			;program counter - 2
+;		LDA 	$105,X
+;		SBC 	#2
+;		STA 	$105,X
+;		TAY
+;		LDA 	$106,X
+;		SBC 	#0
+;		STA 	$106,X
+;	
+;		JSR 	jprinthex	;print address HI
+;		TYA	
+;		JSR 	PUTHEXC		;print address LO
+;		lda	#32
+;		jsr	jchrout
+;		
+;		LDA 	$103,X		;A, X, Y
+;		JSR 	PUTHEXC
+;		LDA 	$102,X
+;		JSR 	PUTHEXC
+;		LDA 	$101,X
+;		JSR 	PUTHEXC
+;		
+;		TXA			;stack pointer
+;		CLC	
+;		ADC 	#6
+;		JSR 	PUTHEXC
+;		
+;		LDY 	#7
+;		LDA 	$104,X
+;		STA 	flags
+;IRQBIN:		ASL	
+;		PHA	
+;		LDA 	#'0'
+;		ADC 	#0
+;		JSR 	jchrout
+;		PLA	
+;		DEY	
+;		BPL 	IRQBIN
+;		
+;		JSR	jnewline
+;		JSR 	PRTDASH
+;		
+;		LDX 	#0
+;IRQDUMP2:	LDA 	MONACT,x
+;		BEQ 	IRQDUMP1
+;		TXA	
+;		ASL	
+;		TAY	
+;		LDA 	MONTAB,y
+;		STA 	memptr
+;		LDA 	MONTAB+1,y
+;		STA 	memptr+1
+;		JSR 	memdumpx16
+;IRQDUMP1:	INX	
+;		CPX 	#4
+;		BNE 	IRQDUMP2
+;		
+;		tsx
+;		LDA 	$107,X
+;		STA	memptr
+;		STA	dbugptro
+;		LDA 	$108,X
+;		STA	memptr+1
+;		sta	dbugptro+1
+;		
+;PRTDASH:	ldx	#73
+;		lda	#'-'
+;prtdash1:	jsr	jchrout
+;		dex
+;		bpl	prtdash1
+;		jmp	jnewline
+;
+;setmonitor:	sec
+;		sbc	#'1'
+;		tay
+;		lda	MONACT,y
+;		beq	setmonitor1
+;		lda	#0
+;		sta	MONACT,Y
+;		beq	setmonitor9
+;setmonitor1:	tya
+;		pha
+;		jsr	setaddress
+;		cmp	#'x'
+;		beq	setmonitor9
+;		pla
+;		tay
+;		lda	#1
+;		sta	MONACT,y
+;		tya
+;		asl
+;		tay
+;		lda	memptr
+;		sta	MONTAB,y
+;		lda	memptr+1
+;		sta	MONTAB+1,y
+;setmonitor9:	lda	#0
+;		rts
+;		
+;setaddress:	ldx	#<(MSGADDR)
+;		ldy	#>(MSGADDR)
+;		jsr	print
+;		jsr	enteradr
+;		cmp	#'x'
+;		beq	setaddress1
+;setaddress1:	lda	#0
+;		rts
+
+;MSGADDR:	.byte "address: ",0		
+		
+;memdumpx:	ldx	#16
+;		jsr	jnewline
+;memdumpx3:	jsr	memdumpx16
+;		dex	
+;		bne	memdumpx3
+;		lda	#0
+;		rts
+;		
+;memdumpx16:	lda	memptr+1
+;		jsr	jprinthex
+;		lda	memptr
+;		jsr	jprinthex
+;		lda	#':'
+;		jsr	jchrout
+;		jsr	jspace
+;	
+;		ldy	#0
+;memdumpx1:	lda	(memptr),y
+;		jsr	PUTHEXC
+;		iny
+;		cpy	#8
+;		bne	memdumpx6
+;		jsr	jspace
+;memdumpx6:	cpy	#16
+;		bne	memdumpx1
+;			
+;		jsr	jspace
+;		lda	#'|'
+;		jsr	jchrout
+;	
+;		ldy	#0
+;memdumpx5:	lda	(memptr),y
+;		and	#127
+;		cmp	#127
+;		beq	memdumpx4
+;		cmp	#32
+;		bcs	memdumpx2
+;memdumpx4:	lda	#' '
+;memdumpx2:	jsr	jchrout
+;		iny	
+;		cpy	#16
+;		bne	memdumpx5
+;	
+;		lda	#'|'
+;		jsr	jchrout
+;	
+;		clc	
+;		tya	
+;		adc	memptr
+;		sta	memptr
+;		bcc	memdumpx9
+;		inc	memptr+1
+;memdumpx9:	jmp	jnewline
+
+
+
+;PTEXT:		STA 	dbugptrx
+;		STY 	dbugptrx+1
+;PTEXT2:		LDY 	#0
+;		LDA 	(dbugptrx),Y
+;		BEQ 	PTEXT1
+;		JSR 	jchrout
+;		INC 	dbugptrx
+;		BNE 	PTEXT2
+;		INC 	dbugptrx+1
+;		BNE 	PTEXT2
+;PTEXT1:		RTS	
+	
+;
+;
+;		
+enteradr:	lda	#0
+		sta	memptr
+		sta	memptr+1
+		lda	#4
+		sta	ADRCNT
+		
+enteradrC:	jsr	jchrin
+		cmp	#EOL
+		beq	enteradrEnd
+	
+		cmp	#'x'
+		beq	enteradrEnd
+	
+enteradrD:	jsr	jchrout
+		cmp	#':'
+		bcs	enteradrE
+		cmp	#'0'
+		bcc	enteradrC
+	
+		and	#%00001111
+		bcs	enteradrF
+	
+enteradrE:	cmp	#'g'
+		bcs	enteradrC
+		cmp	#'a'
+		bcc	enteradrC
+	
+		sbc	#'7'
+enteradrF:	asl
+		asl
+		asl
+		asl
+		ldx	#4
+enteradrG:	asl
+		rol	memptr
+		rol	memptr+1
+		dex
+		bne	enteradrG
+
+		dec	ADRCNT
+		bne	enteradrC
+enteradrEnd:	rts
+
+	
+;BRKSTR:		.byte	EOL
+;		.byte	" PC   A  X  Y  SP NV.BDIZC"
+;		.byte	EOL, 0
+		
+CHARTABLE_NOSHIFT:
+;		 	 00   01   02   03   04   05   06   07   08   09   0A   0B   0C   0D   0E   0F 
+		.byte	  0,   9,   0,   5,   3,   1,   2,  12,   0,  10,   8,   6,   4,TABU, '^',   0	; 00
+		.byte     0,   0,   0,   0,   0, 'q', '1',   0,   0,   0, 'y', 's', 'a', 'w', '2',   0	; 10
+		.byte	  0, 'c', 'x', 'd', 'e', '4', '3',   0,   0, ' ', 'v', 'f', 't', 'r', '5',   0	; 20 
+		.byte	  0, 'n', 'b', 'h', 'g', 'z', '6',   0,   0,   0, 'm', 'j', 'u', '7', '8',   0	; 30 
+		.byte	  0, ',', 'k', 'i', 'o', '0', '9',   0,   0, '.', '-', 'l', $94, 'p', '\',   0	; 40 
+		.byte	  0,   0, $84,  'X',$81, '`',   0,   0,   0,   0, EOL, '+',   0, '#',   0,   0	; 50 
+		.byte	  0, '<',   0,   0,   0,   0,BACK,   0,   0, '1',   0, '4', '7',   0,   0,   0	; 60 
+		.byte	 '0', '.', '2', '5', '6', '8', 27,   0,  11, '+', '3', '-', '*', '9', CLS,   0	; 70 
+		.byte	  0,   0,   0,   7,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0	; 80
+
+CHARTABLE_SHIFT:
+;		 	 00   01   02   03   04   05   06   07   08   09   0A   0B   0C   0D   0E   0F 
+		.byte	  0,   9,   0,   5,   3,   1,   2,  12,   0,  10,   8,   6,   4,TABU, $F8,   0	; 00
+		.byte     0,   0,   0,   0,   0, 'Q', '!',   0,   0,   0, 'Y', 'S', 'A', 'W', '"',   0	; 10
+		.byte	  0, 'C', 'X', 'D', 'E', '$', $15,   0,   0, ' ', 'V', 'F', 'T', 'R', '%',   0	; 20 
+		.byte	  0, 'N', 'B', 'H', 'G', 'Z', '&',   0,   0,   0, 'M', 'J', 'U', '/', '(',   0	; 30 
+		.byte	  0, ';', 'K', 'I', 'O', '=', ')',   0,   0, ':', '_', 'L', $99, 'P', '?',   0	; 40 
+		.byte	  0,   0, $8E,   0, $9A, '?',   0,   0,   0,   0,  EOL, '*', 0,  $27,   0,   0	; 50 
+		.byte	  0, '>',   0,   0,   0,   0,CDCH,   0,   0, '1',   0, CCLF, '7',   0,  0,   0	; 60 
+		.byte	'0', '.', CCDN, '5', CCRT, CCUP,  0,   0,  11, '+', '3', '-', '*', '9', 0,   0  ; 70 
+		.byte	  0,   0,   0,   7,   0,   0,   0,   0,   0,   0,   0,   0,   0,  0,    0,   0	; 80
+
+ALTGR_TABLE_IND:
+		.byte	$15	; q = @
+		.byte	$61	; <> = |
+		.byte	$5B	; *+ = ~
+		.byte	$4E	; ?ß = \
+		.byte	$3E	; 8( = [
+		.byte	$46	; 9) = ]
+		.byte	$3D	; 7/ = {
+		.byte	$45	; 0= = }
+		
+ALTGR_TABLE:	.byte	'@'
+		.byte	'|'
+		.byte	'~'
+		.byte	'\'
+		.byte	'['
+		.byte	']'
+		.byte	'{'
+		.byte	'}'
+		
+		
+EXT_TABLE_IND:	.byte	$4A	; /
+		.byte	$5A	; ENTER
+		.byte	$69	; END
+		.byte	$6B	; LEFT
+		.byte	$6C	; HOME
+		.byte	$70	; INS
+		.byte	$71	; DEL
+		.byte	$72	; DOWN
+		.byte	$74	; RIGHT
+		.byte	$75	; Up
+		.byte	$7A	; PAGE DOWN
+		.byte	$7D	; PAGE UP
+		
+EXT_TABLE:	.byte	'/'	; NumPad division symbol
+		.byte	EOL	; ENTER
+		.byte	CCBT	; cursor bottom with SuperFlag
+		.byte	CCLF	; cursor left
+		.byte	CCHM	; cursor home with SuperFLag
+		.byte	CICH	; insert
+		.byte	CDCH	; delete
+		.byte	CCDN	; cursor down
+		.byte	CCRT	; cursor right
+		.byte	CCUP	; cursor up
+		.byte	CCLM	; left margin with SuperFLag
+		.byte	CCRM	; right margin with SuperFLag
+
+EXT_TABLE_SUPERF:
+		.byte	0
+		.byte	0
+		.byte	1
+		.byte	0
+		.byte	1
+		.byte	0
+		.byte	0
+		.byte	0
+		.byte	0
+		.byte	0
+		.byte	1
+		.byte	1
+
+;	.IF PLATFORM = 0
+;		.include "debug16.a65"
+;		.include "rs232.a65"
+;	.ENDIF
+	
+	.IF PLATFORM <= 1
+		.include "debug16.a65"
+		.include "dup.a65"
+		.include "rs232.a65"
+		.include "vtl02c.a65"
+	.ENDIF
