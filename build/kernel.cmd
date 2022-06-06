@@ -35,11 +35,15 @@ move %REL%\*.lst lst > nul
 move *.o obj > nul
 move *.a obj > nul
 
-set file=kernel_%SUFFIX%.hex
-call :docopy
-set file=start_%SUFFIX%.hex
-call :docopy
-echo :00000001FF >> %KERNEL%
+if %SOFTDISK%==0 (
+	set file=kernel_%SUFFIX%.hex
+	call :docopy
+	set file=start_%SUFFIX%.hex
+	call :docopy
+	echo :00000001FF >> %KERNEL%
+) else (
+	copy obj\kernel_%SUFFIX%.a /B + obj\start_%SUFFIX%.a /B kernelstart_%SUFFIX%.dat /B
+)
 
 popd
 goto :eof
