@@ -1,0 +1,107 @@
+
+*******************************************************************************
+                                     clock
+*******************************************************************************
+
+CUPL(WM)        5.0a Serial# 60008009
+Device          g16v8ms  Library DLIB-h-40-11
+Created         Sun Mar 23 21:20:50 2025
+Name            clock
+Partno          00 
+Revision        01 
+Date            27.07.2024 
+Designer        Roland 
+Company         Scholz Electronics 
+Assembly        None 
+Location        
+
+===============================================================================
+                            Expanded Product Terms
+===============================================================================
+
+!CAS =>
+    A15 & !A16 & !A17 & !A18 & !A19 & !A20 & !A21 & !A22 & CLK2 & !CLK3
+  # !A15 & !A16 & !A17 & !A18 & !A19 & !A20 & !A21 & !A22 & CLK2 & CLK3
+  # A19 & CLK2 & CLK3
+  # A18 & CLK2 & CLK3
+  # A17 & CLK2 & CLK3
+  # A16 & CLK2 & CLK3
+
+CLK1.d  =>
+    !CLK1
+
+CLK2.d  =>
+    CLK1 & !CLK2
+  # !CLK1 & CLK2
+
+CLK3.d  =>
+    CLK1 & CLK2 & !CLK3
+  # !CLK1 & CLK3
+  # !CLK2 & CLK3
+
+!CLK3_N.d  =>
+    CLK1 & CLK2 & !CLK3
+  # !CLK1 & CLK3
+  # !CLK2 & CLK3
+
+RAM =>
+    1 
+
+!RAS.d  =>
+    CLK2 & !CLK3
+  # !CLK2 & CLK3
+
+!ROMIO =>
+    A15 & !A16 & !A17 & !A18 & !A19 & !A20 & !A21 & !A22
+
+CAS.oe  =>
+    1 
+
+RAM.oe  =>
+    1 
+
+ROMIO.oe  =>
+    1 
+
+
+===============================================================================
+                                 Symbol Table
+===============================================================================
+
+Pin Variable                                    Pterms   Max     Min    
+Pol   Name              Ext     Pin     Type     Used   Pterms  Level   
+--- --------            ---     ---     ----    ------  ------  -----   
+
+    A15                         9        V        -       -       -     
+    A16                         8        V        -       -       -     
+    A17                         7        V        -       -       -     
+    A18                         6        V        -       -       -     
+    A19                         5        V        -       -       -     
+    A20                         4        V        -       -       -     
+    A21                         3        V        -       -       -     
+    A22                         2        V        -       -       -     
+    CAS                         15       V        6       7       1     
+    CLK1                        19       V        -       -       -     
+    CLK1                d       19       X        1       8       1     
+    CLK2                        18       V        -       -       -     
+    CLK2                d       18       X        2       8       1     
+    CLK3                        17       V        -       -       -     
+    CLK3                d       17       X        3       8       1     
+    CLK3_N                      12       V        -       -       -     
+    CLK3_N              d       12       X        3       8       1     
+    CLK48                       1        V        -       -       -     
+    OE                          11       V        -       -       -     
+    RAM                         13       V        1       7       1     
+    RAS                         16       V        -       -       -     
+    RAS                 d       16       X        2       8       1     
+    ROMIO                       14       V        1       7       1     
+    CAS                 oe      15       D        1       1       0     
+    RAM                 oe      13       D        1       1       0     
+    ROMIO               oe      14       D        1       1       0     
+
+
+LEGEND    D : default variable         F : field      G : group
+          I : intermediate variable    N : node       M : extended node
+          U : undefined                V : variable   X : extended variable
+          T : function
+

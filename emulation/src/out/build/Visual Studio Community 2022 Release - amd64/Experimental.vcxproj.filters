@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\github\atari-my65816\emulation\src\out\build\Visual Studio Community 2022 Release - amd64\CMakeFiles\1932a743f245d5eed57a1b8d0c3f630d\Experimental.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\github\atari-my65816\emulation\src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\github\atari-my65816\emulation\src\out\build\Visual Studio Community 2022 Release - amd64\CMakeFiles\Experimental" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{12B4A8C5-C84B-389E-94E6-6A334CC6BA2C}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

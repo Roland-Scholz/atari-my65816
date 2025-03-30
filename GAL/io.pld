@@ -1,0 +1,49 @@
+Name     io;
+PartNo   00 ;
+Date     27.07.2024 ;
+Revision 01 ;
+Designer Roland ;
+Company  Scholz Electronics ;
+Assembly None ;
+Location  ;
+Device   g16v8a;
+
+
+/* *************** INPUT PINS *********************/
+PIN 1	= CLK;
+PIN 2	= ROMIO; 
+PIN 3	= RW;
+PIN 4 	= A14; 
+PIN 5	= A13; 
+PIN 6	= A12; 
+PIN 7	= A10;
+PIN 8	= A9;
+PIN 9	= A8;
+PIN 11	= A11;
+/* *************** OUTPUT PINS *********************/
+PIN 12	= ROM;
+PIN 13	= IO6;
+PIN 14	= IO5;
+PIN 15	= IO4;
+PIN 16	= IO3; 
+PIN 17	= IO2; 
+PIN 18	= IO1; 
+PIN 19	= IO0;
+
+/* ROM $E000-$FFFF */
+!ROM = !ROMIO & CLK & RW & A14 & A13;
+
+/* IO0 = $D800 */
+/* IO1 = $D900 */
+/* IO2 = $DA00 */
+/* IO3 = $DB00 */
+/* IO4 = $DC00 */
+/* IO5 = $DD00 */
+/* IO6 = $DE00 */
+ IO0 = CLK & A14 & !A13 & A12 & A11 & !A10 & !A9 & !A8 & !ROMIO; 
+!IO1 = /*CLK & */A14 & !A13 & A12 & A11 & !A10 & !A9 &  A8 & !ROMIO; 
+!IO2 = CLK & A14 & !A13 & A12 & A11 & !A10 &  A9 & !A8 & !ROMIO; 
+!IO3 = CLK & A14 & !A13 & A12 & A11 & !A10 &  A9 &  A8 & !ROMIO; 
+!IO4 = CLK & A14 & !A13 & A12 & A11 &  A10 & !A9 & !A8 & !ROMIO; 
+!IO5 = CLK & A14 & !A13 & A12 & A11 &  A10 & !A9 &  A8 & !ROMIO; 
+!IO6 = CLK & A14 & !A13 & A12 & A11 &  A10 &  A9 & !A8 & !ROMIO; 

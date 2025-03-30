@@ -1,0 +1,1 @@
+void MEM_initialize( void );

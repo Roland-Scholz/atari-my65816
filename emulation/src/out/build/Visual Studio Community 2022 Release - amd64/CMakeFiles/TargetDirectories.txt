@@ -1,0 +1,8 @@
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/my65816.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/NightlyMemoryCheck.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/Experimental.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/Continuous.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/Nightly.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/RUN_TESTS.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/ALL_BUILD.dir
+C:/github/atari-my65816/emulation/src/out/build/Visual Studio Community 2022 Release - amd64/CMakeFiles/ZERO_CHECK.dir

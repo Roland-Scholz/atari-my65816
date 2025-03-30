@@ -1,0 +1,46 @@
+;		.include "homebrew.inc"
+
+;00FFE4 00FFF4 COP
+;00FFE6 00FFFE BRK
+;00FFE8 00FFF8 ABORT
+;00FFEA 00FFFA NMI
+;       00FFFC RESET
+;00FFEE 00FFFE IRQ
+
+		EXTERNS ON
+		
+		org $FFE4
+
+;		.word jcopn	;00FFE4		COP
+;		.word jbrk      ;00FFE6		BRK
+;		.word jabortn	;00FFE8		ABORT
+;		.word jnmin     ;00FFEA		NMI
+;		.word 0		;		RESET
+;		.word jirqn     ;00FFEE		IRQ
+;		
+;		.word 0
+;		.word 0
+;		
+;		.word jcope	;00FFF4 	COP
+;		.word 0         ;
+;		.word jaborte   ;00FFF8 	ABORT 
+;		.word jnmie     ;00FFFA 	NMI 
+;		.word jkernel   ;00FFFC 	RESET 
+;		.word jirqe     ;00FFFE 	IRQ 
+		
+
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw 0
+		dw kernel
+		dw 0
+		

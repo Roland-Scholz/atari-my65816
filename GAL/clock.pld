@@ -1,0 +1,53 @@
+Name     clock;
+PartNo   00 ;
+Date     27.07.2024 ;
+Revision 01 ;
+Designer Roland ;
+Company  Scholz Electronics ;
+Assembly None ;
+Location  ;
+Device   g16v8a;
+
+
+/* *************** INPUT PINS *********************/
+PIN 1	= CLK48;
+PIN 2	= A22; 
+PIN 3	= A21;
+PIN 4 	= A20; 
+PIN 5	= A19; 
+PIN 6	= A18; 
+PIN 7	= A17;
+PIN 8	= A16;
+PIN 9	= A15;
+PIN 11	= OE;
+/* *************** OUTPUT PINS *********************/
+PIN 12	= CLK3_N;
+PIN 13	= RAM;
+PIN 14	= ROMIO;
+PIN 15	= CAS;
+PIN 16	= RAS; 
+PIN 17	= CLK3; 
+PIN 18	= CLK2; 
+PIN 19	= CLK1;
+
+CLK1.D	= !CLK1;
+CLK2.D	= CLK1 $ CLK2;
+CLK3.D	= (CLK1 & CLK2) $ CLK3;
+!CLK3_N.D	= (CLK1 & CLK2) $ CLK3;
+!RAS.D	= CLK2 & !CLK3 # CLK3 & !CLK2;
+!CAS		= (!A22 & !A21 & !A20 & !A19 & !A18 & !A17 & !A16 & A15 & CLK2 & !CLK3)		/* Cas-before-Ras refresh */
+		# (!A22 & !A21 & !A20 & !A19 & !A18 & !A17 & !A16 & !A15 & CLK3 & CLK2)		/* RAM 0000-7FFF */
+		# ((A19 # A18 # A17 # A16) & (CLK3 & CLK2));
+!ROMIO	=  !A22 & !A21 & !A20 & !A19 & !A18 & !A17 & !A16 &  A15;
+/*!RAM.D	=  !A22 & !A21 & !A20 & !A19 & !A18 & !A17 & !A16 & !A15 & ((CLK1 & CLK2) $ CLK3);*/
+RAM		= 'b'1;
+/*
+000 1 0 0
+001 1 0 0
+010 1 0 0
+011 0 1 1
+100 0 1 1
+101 0 1 1
+110 0 1 1
+111 1 0 0
+*/

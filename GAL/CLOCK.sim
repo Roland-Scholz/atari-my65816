@@ -1,0 +1,70 @@
+%SIGNAL
+PIN   9 =  A15 
+PIN   8 =  A16 
+PIN   7 =  A17 
+PIN   6 =  A18 
+PIN   5 =  A19 
+PIN   4 =  A20 
+PIN   3 =  A21 
+PIN   2 =  A22 
+PIN  15 =  CAS 
+PIN  19 =  CLK1 
+PIN  18 =  CLK2 
+PIN  17 =  CLK3 
+PIN  12 =  CLK3_N 
+PIN   1 =  CLK48 
+PIN  11 =  OE 
+PIN  13 =  RAM 
+PIN  16 =  RAS 
+PIN  14 =  ROMIO 
+%END
+
+%FIELD
+%END
+
+%EQUATION
+!CAS =>
+    A15 & !A16 & !A17 & !A18 & !A19 & !A20 & !A21 & !A22 & CLK2 & !CLK3
+  # !A15 & !A16 & !A17 & !A18 & !A19 & !A20 & !A21 & !A22 & CLK2 & CLK3
+  # A19 & CLK2 & CLK3
+  # A18 & CLK2 & CLK3
+  # A17 & CLK2 & CLK3
+  # A16 & CLK2 & CLK3
+
+CLK1.d  =>
+    !CLK1
+
+CLK2.d  =>
+    CLK1 & !CLK2
+  # !CLK1 & CLK2
+
+CLK3.d  =>
+    CLK1 & CLK2 & !CLK3
+  # !CLK1 & CLK3
+  # !CLK2 & CLK3
+
+!CLK3_N.d  =>
+    CLK1 & CLK2 & !CLK3
+  # !CLK1 & CLK3
+  # !CLK2 & CLK3
+
+RAM =>
+    1 
+
+!RAS.d  =>
+    CLK2 & !CLK3
+  # !CLK2 & CLK3
+
+!ROMIO =>
+    A15 & !A16 & !A17 & !A18 & !A19 & !A20 & !A21 & !A22
+
+CAS.oe  =>
+    1 
+
+RAM.oe  =>
+    1 
+
+ROMIO.oe  =>
+    1 
+
+%END

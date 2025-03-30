@@ -1,0 +1,50 @@
+%SIGNAL
+PIN   9 =  A8 
+PIN   8 =  A9 
+PIN   7 =  A10 
+PIN  11 =  A11 
+PIN   6 =  A12 
+PIN   5 =  A13 
+PIN   4 =  A14 
+PIN   1 =  CLK 
+PIN  19 =  IO0 
+PIN  18 =  IO1 
+PIN  17 =  IO2 
+PIN  16 =  IO3 
+PIN  15 =  IO4 
+PIN  14 =  IO5 
+PIN  13 =  IO6 
+PIN  12 =  ROM 
+PIN   2 =  ROMIO 
+PIN   3 =  RW 
+%END
+
+%FIELD
+%END
+
+%EQUATION
+IO0 =>
+    !A8 & !A9 & !A10 & A11 & A12 & !A13 & A14 & CLK & !ROMIO
+
+!IO1 =>
+    A8 & !A9 & !A10 & A11 & A12 & !A13 & A14 & !ROMIO
+
+!IO2 =>
+    !A8 & A9 & !A10 & A11 & A12 & !A13 & A14 & CLK & !ROMIO
+
+!IO3 =>
+    A8 & A9 & !A10 & A11 & A12 & !A13 & A14 & CLK & !ROMIO
+
+!IO4 =>
+    !A8 & !A9 & A10 & A11 & A12 & !A13 & A14 & CLK & !ROMIO
+
+!IO5 =>
+    A8 & !A9 & A10 & A11 & A12 & !A13 & A14 & CLK & !ROMIO
+
+!IO6 =>
+    !A8 & A9 & A10 & A11 & A12 & !A13 & A14 & CLK & !ROMIO
+
+!ROM =>
+    A13 & A14 & CLK & !ROMIO & RW
+
+%END
